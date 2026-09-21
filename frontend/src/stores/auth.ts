@@ -8,7 +8,10 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(authSession.getUser())
   const loading = ref(false)
 
-  const isAuthenticated = computed(() => Boolean(authSession.getToken() && user.value))
+  // Read the reactive user first. If the non-reactive token is checked first,
+  // an initially empty session short-circuits before Vue can track user.value,
+  // leaving this computed value cached as false after a successful login.
+  const isAuthenticated = computed(() => Boolean(user.value && authSession.getToken()))
   const isAdmin = computed(() => user.value?.role === 'admin')
 
   async function login(identifier: string, password: string) {
@@ -49,4 +52,3 @@ export const useAuthStore = defineStore('auth', () => {
 
   return { user, loading, isAuthenticated, isAdmin, login, register, refreshUser, logout, resetAfterUnauthorized }
 })
-

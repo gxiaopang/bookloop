@@ -188,7 +188,7 @@ onMounted(() => { if (editId) void load() })
             </el-form-item>
           </div>
           <el-form-item label="实物描述" prop="description"><el-input v-model="form.description" type="textarea" :rows="6" maxlength="10000" show-word-limit placeholder="版本、笔记、折痕或缺页等信息请如实说明" /></el-form-item>
-          <el-button type="primary" native-type="submit" :loading="saving">{{ book ? '保存资料' : '创建下架商品并继续' }}</el-button>
+          <el-button type="primary" native-type="submit" :loading="saving">{{ book ? '保存资料' : '创建上架商品并继续' }}</el-button>
         </el-form>
       </section>
 

@@ -46,12 +46,19 @@ onMounted(() => load())
       <div class="hero-copy">
         <span class="eyebrow light">BOOKS DESERVE ANOTHER CHAPTER</span>
         <h1>让读过的书，<br /><em>继续被需要。</em></h1>
-        <p>在校园里找到下一本好书，也为书架腾出一块新空间。真实图片、清楚品相、简单交易。</p>
+        <p>知识不毕业，好书再循环。</p>
       </div>
       <div class="hero-art" aria-hidden="true">
         <span class="orbit orbit-one"></span>
         <span class="orbit orbit-two"></span>
-        <div class="hero-book"><small>BOOK</small><strong>LOOP</strong><i>校园书市</i></div>
+        <div class="hero-book">
+          <div class="hero-book-kicker"><span>SECOND CHAPTER</span><b>01</b></div>
+          <strong class="hero-book-title"><span>BOOK</span><span>LOOP</span></strong>
+          <div class="hero-book-footer">
+            <i>校园书市</i>
+            <small>READ · SHARE · REPEAT</small>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -95,4 +102,3 @@ onMounted(() => load())
     </section>
   </div>
 </template>
-
