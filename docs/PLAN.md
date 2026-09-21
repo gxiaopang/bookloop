@@ -410,6 +410,7 @@ pending_payment ───────────────────> paid 
 | POST | `/books/{book_id}/off-shelf` | 所有者 | `available` → `off_shelf` |
 | POST | `/books/{book_id}/on-shelf` | 所有者 | `off_shelf` → `available`，必须已有 1～6 张图片 |
 | GET | `/users/me/books` | 是 | 当前用户发布列表 |
+| GET | `/users/me/books/{book_id}` | 所有者 | 读取自己的商品详情和完整图片，包含非公开状态，用于恢复编辑流程 |
 
 查询参数严格限定为：
 
@@ -435,6 +436,8 @@ GET /api/v1/books?page=1&page_size=20
 | GET | `/favorites` | 是 | 当前用户收藏列表 |
 | PUT | `/favorites/{book_id}` | 是 | 幂等添加收藏 |
 | DELETE | `/favorites/{book_id}` | 是 | 幂等取消收藏 |
+
+收藏是用户的个人记录，不随商品状态变化自动删除。收藏列表返回当前商品状态；即使商品已 `off_shelf`、`blocked` 或 `sold` 也继续展示，便于用户识别并取消失效收藏。响应中的 `is_available` 仅在商品为 `available` 且卖家当前为 `active` 时为 `true`。
 
 ### 10.5 Order
 
@@ -594,6 +597,7 @@ Browser ──> nginx（唯一公网入口） ──> backend（内部网络）
 ```text
 APP_ENV
 HTTP_ADDR
+TRUSTED_PROXIES
 LOG_LEVEL
 DB_HOST
 DB_PORT

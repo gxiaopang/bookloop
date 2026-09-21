@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS book_images;
+DROP TABLE IF EXISTS books;

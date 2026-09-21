@@ -1,0 +1,30 @@
+package service
+
+import "errors"
+
+var (
+	ErrValidation            = errors.New("validation error")
+	ErrUsernameAlreadyExists = errors.New("username already exists")
+	ErrEmailAlreadyExists    = errors.New("email already exists")
+	ErrInvalidCredentials    = errors.New("invalid credentials")
+	ErrUnauthorized          = errors.New("unauthorized")
+	ErrTokenExpired          = errors.New("token expired")
+	ErrUserDisabled          = errors.New("user disabled")
+	ErrForbidden             = errors.New("forbidden")
+	ErrBookNotFound          = errors.New("book not found")
+	ErrBookNotOwner          = errors.New("book not owned by user")
+	ErrBookStateConflict     = errors.New("book state conflict")
+	ErrBookImageNotFound     = errors.New("book image not found")
+	ErrBookImageLimitReached = errors.New("book image limit reached")
+	ErrBookImageRequired     = errors.New("book image required")
+	ErrInvalidImage          = errors.New("invalid image")
+	ErrImageTooLarge         = errors.New("image too large")
+	ErrBookNotAvailable      = errors.New("book not available")
+	ErrCannotPurchaseOwnBook = errors.New("cannot purchase own book")
+	ErrOrderNotFound         = errors.New("order not found")
+	ErrOrderAccessDenied     = errors.New("order access denied")
+	ErrOrderStateConflict    = errors.New("order state conflict")
+	ErrIdempotencyKeyReused  = errors.New("idempotency key reused")
+	ErrRequestInProgress     = errors.New("request in progress")
+	ErrDependencyUnavailable = errors.New("dependency unavailable")
+)
