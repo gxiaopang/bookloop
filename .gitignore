@@ -5,3 +5,6 @@ certs/
 backups/
 *.log
 
+# Local development instructions and internal documentation
+AGENTS.md
+docs/
