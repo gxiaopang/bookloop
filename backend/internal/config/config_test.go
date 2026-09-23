@@ -21,6 +21,11 @@ var requiredEnvironment = map[string]string{
 	"REDIS_ADDR":                 "127.0.0.1:6379",
 	"REDIS_PASSWORD":             "",
 	"REDIS_DB":                   "0",
+	"RABBITMQ_HOST":              "127.0.0.1",
+	"RABBITMQ_PORT":              "5672",
+	"RABBITMQ_USER":              "bookloop",
+	"RABBITMQ_PASSWORD":          "local-password",
+	"RABBITMQ_VHOST":             "/",
 	"JWT_SECRET":                 "development-secret",
 	"JWT_ISSUER":                 "bookloop",
 	"JWT_EXPIRES_IN":             "15m",
@@ -50,6 +55,9 @@ func TestLoad(t *testing.T) {
 	}
 	if cfg.JWT.ExpiresIn != 15*time.Minute {
 		t.Fatalf("JWT.ExpiresIn = %s, want 15m", cfg.JWT.ExpiresIn)
+	}
+	if cfg.RabbitMQ.Port != 5672 || cfg.RabbitMQ.VHost != "/" {
+		t.Fatalf("RabbitMQ config = %+v, want port 5672 and root vhost", cfg.RabbitMQ)
 	}
 	if cfg.Upload.MaxBytes != 10*1024*1024 {
 		t.Fatalf("Upload.MaxBytes = %d, want %d", cfg.Upload.MaxBytes, 10*1024*1024)

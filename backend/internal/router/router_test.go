@@ -207,6 +207,10 @@ func TestOrderRoutesRequireAuthentication(t *testing.T) {
 		httptest.NewRequest(http.MethodGet, "/api/v1/orders/01HF7YAT00ABCDEFGHJKMNPQRS", nil),
 		httptest.NewRequest(http.MethodPost, "/api/v1/orders/01HF7YAT00ABCDEFGHJKMNPQRS/pay", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/admin/orders", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/notifications", nil),
+		httptest.NewRequest(http.MethodPut, "/api/v1/notifications/read-all", nil),
+		httptest.NewRequest(http.MethodPut, "/api/v1/notifications/1/read", nil),
+		httptest.NewRequest(http.MethodGet, "/api/v1/admin/messaging/status", nil),
 	} {
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, request)
@@ -238,6 +242,8 @@ func testEngine(
 		handler.NewBook(nil, logger, 1024),
 		handler.NewFavorite(nil, logger),
 		handler.NewOrder(nil, logger),
+		handler.NewNotification(nil, logger),
+		handler.NewMessagingStatus(nil, logger),
 		middleware.NewAuthentication(nil, logger),
 	)
 }

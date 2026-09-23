@@ -27,4 +27,5 @@ var (
 	ErrIdempotencyKeyReused  = errors.New("idempotency key reused")
 	ErrRequestInProgress     = errors.New("request in progress")
 	ErrDependencyUnavailable = errors.New("dependency unavailable")
+	ErrNotificationNotFound  = errors.New("notification not found")
 )

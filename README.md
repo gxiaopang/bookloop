@@ -19,7 +19,7 @@
 
 BookLoop 面向校园二手书交易场景。卖家可以发布带实物图片的图书，买家可以浏览、收藏、下单并完成模拟支付。系统通过 MySQL 事务、行级锁和幂等键，保证同一本书不会被重复售出。
 
-项目采用 Go + Vue 3 的模块化单体架构，适合作为完整的全栈项目运行，也适合学习 REST API、JWT 鉴权、事务并发控制、Redis 幂等和 Docker Compose 部署。
+项目采用 Go + Vue 3 的模块化单体架构，适合作为完整的全栈项目运行，也适合学习 REST API、JWT 鉴权、事务并发控制、Redis 幂等、Transactional Outbox、RabbitMQ 消费幂等和 Docker Compose 部署。
 
 > [!NOTE]
 > 当前支付流程为模拟支付，不接入真实支付渠道。
@@ -33,8 +33,10 @@ BookLoop 面向校园二手书交易场景。卖家可以发布带实物图片�
 | 发布 | 图书创建与编辑、实物图片上传与排序、上架与下架 |
 | 收藏 | 添加收藏、取消收藏、收藏列表 |
 | 订单 | 创建订单、模拟支付、取消订单、确认完成 |
+| 通知 | 订单状态站内通知、未读筛选、单条/全部已读 |
 | 管理 | 订单查询、违规图书封禁与恢复 |
 | 可靠性 | 并发购买保护、订单幂等、健康检查、请求追踪 |
+| 异步消息 | MySQL Outbox、RabbitMQ publisher confirm、重试与死信队列 |
 | 部署 | Docker Compose 一键启动、自动执行数据库迁移 |
 
 ## 🧰 技术栈
@@ -43,7 +45,7 @@ BookLoop 面向校园二手书交易场景。卖家可以发布带实物图片�
 |---|---|
 | 后端 | Go、Gin、GORM、JWT、bcrypt |
 | 前端 | Vue 3、TypeScript、Vite、Element Plus、Pinia、Axios |
-| 数据 | MySQL 8、Redis 7 |
+| 数据与消息 | MySQL 8、Redis 7、RabbitMQ 4 |
 | 部署 | Docker、Docker Compose、Nginx |
 | 测试 | Go testing、Vitest |
 
@@ -59,9 +61,11 @@ Nginx ───────────────► Vue SPA / uploaded images
 Gin Router → Middleware → Handler → Service → Repository
                                               ├── MySQL（事实源）
                                               └── Redis（幂等辅助）
+
+MySQL Outbox → Go Worker → RabbitMQ → Notification Consumer → MySQL
 ```
 
-后端遵循 `Router → Handler → Service → Repository → Database` 分层。MySQL 保存核心业务事实，Redis 只承担幂等等辅助能力；即使 Redis 暂时不可用，订单正确性仍由数据库事务与唯一约束保证。
+后端遵循 `Router → Handler → Service → Repository → Database` 分层。MySQL 保存核心业务事实，Redis 只承担幂等等辅助能力；订单事务与 Outbox 原子提交，RabbitMQ 仅异步传递已提交事件。即使 Redis 或 RabbitMQ 暂时不可用，订单正确性仍由数据库事务与唯一约束保证。
 
 ## 🚀 快速启动
 
@@ -96,7 +100,7 @@ docker compose ps
 ```bash
 curl --fail http://127.0.0.1:8088/healthz
 curl --fail http://127.0.0.1:8088/readyz
-docker compose logs migrate backend nginx
+docker compose logs migrate backend worker rabbitmq nginx
 ```
 
 ### 5. 停止服务
@@ -112,7 +116,7 @@ docker compose down
 ```text
 bookloop/
 ├── backend/
-│   ├── cmd/                 # API 服务与数据库迁移入口
+│   ├── cmd/                 # API、消息 worker 与数据库迁移入口
 │   ├── internal/            # Handler、Service、Repository 等后端模块
 │   └── migrations/          # SQL 数据库迁移
 ├── frontend/

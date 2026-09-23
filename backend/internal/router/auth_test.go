@@ -178,6 +178,8 @@ func newAuthTestEngine(t *testing.T, tokenLifetime time.Duration) (*gin.Engine, 
 		handler.NewBook(nil, logger, 1024),
 		handler.NewFavorite(nil, logger),
 		handler.NewOrder(nil, logger),
+		handler.NewNotification(nil, logger),
+		handler.NewMessagingStatus(nil, logger),
 		middleware.NewAuthentication(authService, logger),
 	), users
 }

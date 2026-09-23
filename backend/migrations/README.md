@@ -22,4 +22,6 @@ must be inspected and repaired before retrying.
 
 Apply `down` files manually in reverse numeric order only as part of a reviewed
 rollback. Phase 2 introduced `users`; Phase 3 introduced `books` and
-`book_images`; Phase 4 introduced `favorites`; Phase 5 introduced `orders`.
+`book_images`; Phase 4 introduced `favorites`; Phase 5 introduced `orders`;
+the messaging enhancement introduced `outbox_events`, `processed_messages`, and
+`notifications`.

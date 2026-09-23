@@ -112,6 +112,10 @@ func (r *handlerOrderRepository) WithinTransaction(_ context.Context, operation 
 	return operation(r)
 }
 
+func (r *handlerOrderRepository) CreateOutboxEvent(context.Context, *model.OutboxEvent) error {
+	return nil
+}
+
 func (r *handlerOrderRepository) CurrentTime(context.Context) (time.Time, error) {
 	return r.now, nil
 }

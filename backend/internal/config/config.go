@@ -16,6 +16,7 @@ type Config struct {
 	Log         LogConfig
 	DB          DatabaseConfig
 	Redis       RedisConfig
+	RabbitMQ    RabbitMQConfig
 	JWT         JWTConfig
 	BcryptCost  int
 	Upload      UploadConfig
@@ -46,6 +47,14 @@ type RedisConfig struct {
 	Address  string
 	Password string
 	DB       int
+}
+
+type RabbitMQConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	VHost    string
 }
 
 type JWTConfig struct {
@@ -90,6 +99,11 @@ func Load() (Config, error) {
 	cfg.Redis.Address = required("REDIS_ADDR", &validationErrors)
 	cfg.Redis.Password = optional("REDIS_PASSWORD")
 	cfg.Redis.DB = requiredInt("REDIS_DB", &validationErrors)
+	cfg.RabbitMQ.Host = required("RABBITMQ_HOST", &validationErrors)
+	cfg.RabbitMQ.Port = requiredInt("RABBITMQ_PORT", &validationErrors)
+	cfg.RabbitMQ.User = required("RABBITMQ_USER", &validationErrors)
+	cfg.RabbitMQ.Password = required("RABBITMQ_PASSWORD", &validationErrors)
+	cfg.RabbitMQ.VHost = required("RABBITMQ_VHOST", &validationErrors)
 
 	cfg.JWT.Secret = required("JWT_SECRET", &validationErrors)
 	cfg.JWT.Issuer = required("JWT_ISSUER", &validationErrors)
@@ -253,6 +267,12 @@ func validate(cfg Config, validationErrors *[]error) {
 	}
 	if cfg.Redis.DB < 0 {
 		*validationErrors = append(*validationErrors, errors.New("REDIS_DB must not be negative"))
+	}
+	if cfg.RabbitMQ.Port < 1 || cfg.RabbitMQ.Port > 65535 {
+		*validationErrors = append(*validationErrors, errors.New("RABBITMQ_PORT must be between 1 and 65535"))
+	}
+	if !strings.HasPrefix(cfg.RabbitMQ.VHost, "/") {
+		*validationErrors = append(*validationErrors, errors.New("RABBITMQ_VHOST must start with /"))
 	}
 
 	if cfg.JWT.ExpiresIn <= 0 {

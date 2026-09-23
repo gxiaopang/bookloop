@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gxiaopang/bookloop/backend/internal/dto"
+	domainevent "github.com/gxiaopang/bookloop/backend/internal/event"
 	"github.com/gxiaopang/bookloop/backend/internal/model"
 	"github.com/gxiaopang/bookloop/backend/internal/repository"
 )
@@ -292,6 +294,9 @@ func (s *Order) createWithMySQL(
 				return err
 			}
 			if err := store.UpdateBookStatus(ctx, book.ID, model.BookStatusAvailable, model.BookStatusReserved); err != nil {
+				return err
+			}
+			if err := enqueueOrderEvent(ctx, store, order, domainevent.OrderCreated, now); err != nil {
 				return err
 			}
 			created = order
@@ -601,6 +606,9 @@ func (s *Order) transition(
 			order.Status = model.OrderStatusPaid
 			order.PaidAt = &now
 			order.UpdatedAt = now
+			if err := enqueueOrderEvent(ctx, store, order, domainevent.OrderPaid, now); err != nil {
+				return err
+			}
 			changed = order
 
 		case orderActionCancel:
@@ -633,6 +641,9 @@ func (s *Order) transition(
 			order.CancelledAt = &now
 			order.CancelReason = &reason
 			order.UpdatedAt = now
+			if err := enqueueOrderEvent(ctx, store, order, domainevent.OrderCancelled, now); err != nil {
+				return err
+			}
 			changed = order
 
 		case orderActionComplete:
@@ -651,6 +662,9 @@ func (s *Order) transition(
 			order.Status = model.OrderStatusCompleted
 			order.CompletedAt = &now
 			order.UpdatedAt = now
+			if err := enqueueOrderEvent(ctx, store, order, domainevent.OrderCompleted, now); err != nil {
+				return err
+			}
 			changed = order
 		}
 		return nil
@@ -772,7 +786,36 @@ func expireLocked(
 	order.CancelReason = &reason
 	order.UpdatedAt = now
 	book.Status = model.BookStatusAvailable
-	return nil
+	return enqueueOrderEvent(ctx, store, order, domainevent.OrderExpired, now)
+}
+
+func enqueueOrderEvent(
+	ctx context.Context,
+	store repository.OrderStore,
+	order *model.Order,
+	eventType string,
+	now time.Time,
+) error {
+	payload, err := json.Marshal(domainevent.OrderPayload{
+		OrderNo:   order.OrderNo,
+		BookID:    order.BookID,
+		BuyerID:   order.BuyerID,
+		SellerID:  order.SellerID,
+		BookTitle: order.BookTitle,
+		Status:    string(order.Status),
+		ExpiresAt: order.ExpiresAt,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal order event: %w", err)
+	}
+	return store.CreateOutboxEvent(ctx, &model.OutboxEvent{
+		AggregateType: "order",
+		AggregateID:   order.OrderNo,
+		EventType:     eventType,
+		Payload:       payload,
+		OccurredAt:    now,
+		AvailableAt:   now,
+	})
 }
 
 func (s *Order) withTransactionRetry(ctx context.Context, operation func(repository.OrderStore) error) error {

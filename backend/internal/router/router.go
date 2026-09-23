@@ -19,6 +19,8 @@ func New(
 	books *handler.Book,
 	favorites *handler.Favorite,
 	orders *handler.Order,
+	notifications *handler.Notification,
+	messagingStatus *handler.MessagingStatus,
 	authentication *middleware.Authentication,
 ) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
@@ -61,12 +63,16 @@ func New(
 	authenticated.POST("/orders/:order_no/pay", orders.Pay)
 	authenticated.POST("/orders/:order_no/cancel", orders.Cancel)
 	authenticated.POST("/orders/:order_no/complete", orders.Complete)
+	authenticated.GET("/notifications", notifications.List)
+	authenticated.PUT("/notifications/read-all", notifications.MarkAllRead)
+	authenticated.PUT("/notifications/:notification_id/read", notifications.MarkRead)
 
 	admin := api.Group("/admin")
 	admin.Use(authentication.RequireUser(), middleware.RequireRole(model.UserRoleAdmin))
 	admin.POST("/books/:book_id/block", books.Block)
 	admin.POST("/books/:book_id/unblock", books.Unblock)
 	admin.GET("/orders", orders.ListAll)
+	admin.GET("/messaging/status", messagingStatus.Get)
 
 	engine.NoRoute(func(c *gin.Context) {
 		c.JSON(http.StatusNotFound, dto.ErrorResponse(

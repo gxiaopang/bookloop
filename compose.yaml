@@ -7,7 +7,9 @@ x-backend-build: &backend-build
 x-backend-environment: &backend-environment
   APP_ENV: ${APP_ENV:?APP_ENV is required}
   HTTP_ADDR: :8080
-  TRUSTED_PROXIES: 172.30.88.10
+  # The backend is only reachable on the private Docker network. Trust the
+  # standard Docker bridge address range so Compose can allocate a free subnet.
+  TRUSTED_PROXIES: 172.16.0.0/12
   LOG_LEVEL: ${LOG_LEVEL:-info}
   DB_HOST: mysql
   DB_PORT: 3306
@@ -19,6 +21,11 @@ x-backend-environment: &backend-environment
   REDIS_ADDR: redis:6379
   REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
   REDIS_DB: 0
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: 5672
+  RABBITMQ_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
+  RABBITMQ_VHOST: /
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
   JWT_ISSUER: ${JWT_ISSUER:-bookloop}
   JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
@@ -78,6 +85,25 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  rabbitmq:
+    image: rabbitmq:4-alpine
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?RABBITMQ_USER is required}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?RABBITMQ_PASSWORD is required}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+
   migrate:
     image: bookloop-backend:local
     entrypoint: ["/app/migrate"]
@@ -127,6 +153,30 @@ services:
       start_period: 15s
     stop_grace_period: 15s
 
+  worker:
+    image: bookloop-backend:local
+    entrypoint: ["/app/worker"]
+    restart: unless-stopped
+    init: true
+    environment: *backend-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - internal
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      disable: true
+    stop_grace_period: 15s
+
   nginx:
     image: bookloop-nginx:local
     build:
@@ -146,7 +196,6 @@ services:
     networks:
       edge:
       internal:
-        ipv4_address: 172.30.88.10
     security_opt:
       - no-new-privileges:true
     healthcheck:
@@ -159,11 +208,9 @@ services:
 volumes:
   mysql_data:
   book_uploads:
+  rabbitmq_data:
 
 networks:
   edge:
   internal:
     internal: true
-    ipam:
-      config:
-        - subnet: 172.30.88.0/24

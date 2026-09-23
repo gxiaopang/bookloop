@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sort"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gxiaopang/bookloop/backend/internal/dto"
+	domainevent "github.com/gxiaopang/bookloop/backend/internal/event"
 	"github.com/gxiaopang/bookloop/backend/internal/model"
 	"github.com/gxiaopang/bookloop/backend/internal/repository"
 )
@@ -37,6 +40,14 @@ func TestOrderCreateSnapshotsBookAndReservesIt(t *testing.T) {
 	}
 	if !result.Order.ExpiresAt.Equal(repository.now.Add(15 * time.Minute)) {
 		t.Fatalf("expires_at = %s, want database time + timeout", result.Order.ExpiresAt)
+	}
+	if len(repository.outboxEvents) != 1 || repository.outboxEvents[0].EventType != domainevent.OrderCreated {
+		t.Fatalf("outbox events = %+v, want one order.created event", repository.outboxEvents)
+	}
+	var payload domainevent.OrderPayload
+	if err := json.Unmarshal(repository.outboxEvents[0].Payload, &payload); err != nil ||
+		payload.OrderNo != result.Order.OrderNo || payload.BuyerID != 20 || payload.SellerID != 10 {
+		t.Fatalf("outbox payload = %+v/%v, want committed order participants", payload, err)
 	}
 }
 
@@ -315,6 +326,14 @@ func TestOrderPayAndCompleteStateMachine(t *testing.T) {
 	if _, err := service.Cancel(context.Background(), 20, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
 		t.Fatalf("Cancel(completed) error = %v, want ErrOrderStateConflict", err)
 	}
+	eventTypes := make([]string, 0, len(repository.outboxEvents))
+	for _, outboxEvent := range repository.outboxEvents {
+		eventTypes = append(eventTypes, outboxEvent.EventType)
+	}
+	wantEvents := []string{domainevent.OrderCreated, domainevent.OrderPaid, domainevent.OrderCompleted}
+	if fmt.Sprint(eventTypes) != fmt.Sprint(wantEvents) {
+		t.Fatalf("outbox event types = %v, want %v (idempotent repeats must not emit)", eventTypes, wantEvents)
+	}
 }
 
 func TestOrderCancelAndExpirationReleaseBook(t *testing.T) {
@@ -515,6 +534,7 @@ type fakeOrderRepository struct {
 	nextID        uint64
 	now           time.Time
 	orderSequence uint64
+	outboxEvents  []model.OutboxEvent
 }
 
 func newFakeOrderRepository() *fakeOrderRepository {
@@ -602,6 +622,12 @@ func (r *fakeOrderRepository) Create(_ context.Context, order *model.Order) erro
 	order.CreatedAt = r.now
 	order.UpdatedAt = r.now
 	r.orders[order.OrderNo] = order
+	return nil
+}
+
+func (r *fakeOrderRepository) CreateOutboxEvent(_ context.Context, outboxEvent *model.OutboxEvent) error {
+	outboxEvent.ID = uint64(len(r.outboxEvents) + 1)
+	r.outboxEvents = append(r.outboxEvents, *outboxEvent)
 	return nil
 }
 

@@ -64,6 +64,8 @@ func writeServiceError(c *gin.Context, logger *slog.Logger, err error) {
 		c.JSON(http.StatusConflict, dto.ErrorResponse("REQUEST_IN_PROGRESS", "an identical request is still processing", requestID))
 	case errors.Is(err, service.ErrDependencyUnavailable):
 		c.JSON(http.StatusServiceUnavailable, dto.ErrorResponse("SERVICE_UNAVAILABLE", "required dependency is temporarily unavailable", requestID))
+	case errors.Is(err, service.ErrNotificationNotFound):
+		c.JSON(http.StatusNotFound, dto.ErrorResponse("NOTIFICATION_NOT_FOUND", "notification not found", requestID))
 	default:
 		logger.Error("request failed with internal error", "request_id", requestID, "error", err)
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse("INTERNAL_ERROR", "internal server error", requestID))

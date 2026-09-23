@@ -30,6 +30,7 @@ type OrderStore interface {
 	FindUserByIDForShare(context.Context, uint64) (*model.User, error)
 	FindByOrderNoForUpdate(context.Context, string) (*model.Order, error)
 	Create(context.Context, *model.Order) error
+	CreateOutboxEvent(context.Context, *model.OutboxEvent) error
 	UpdateBookStatus(context.Context, uint64, model.BookStatus, model.BookStatus) error
 	UpdateOrderStatus(context.Context, uint64, model.OrderStatus, model.OrderStatus, map[string]any) error
 }
@@ -71,6 +72,10 @@ func (r *OrderRepository) Create(ctx context.Context, order *model.Order) error 
 		}
 	}
 	return err
+}
+
+func (r *OrderRepository) CreateOutboxEvent(ctx context.Context, event *model.OutboxEvent) error {
+	return r.db.WithContext(ctx).Create(event).Error
 }
 
 func (r *OrderRepository) FindByBuyerAndIdempotencyKey(ctx context.Context, buyerID uint64, key string) (*model.Order, error) {

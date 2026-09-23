@@ -110,7 +110,14 @@ func run() (returnErr error) {
 		logger,
 	)
 	orderHandler := handler.NewOrder(orderService, logger)
-	engine := router.New(logger, healthHandler, authHandler, bookHandler, favoriteHandler, orderHandler, authentication)
+	notificationRepository := repository.NewNotificationRepository(mysqlStore.DB)
+	notificationService := service.NewNotification(notificationRepository)
+	notificationHandler := handler.NewNotification(notificationService, logger)
+	outboxRepository := repository.NewOutboxRepository(mysqlStore.DB)
+	messagingStatusService := service.NewMessagingStatus(outboxRepository)
+	messagingStatusHandler := handler.NewMessagingStatus(messagingStatusService, logger)
+	engine := router.New(logger, healthHandler, authHandler, bookHandler, favoriteHandler, orderHandler,
+		notificationHandler, messagingStatusHandler, authentication)
 	if err := engine.SetTrustedProxies(cfg.HTTP.TrustedProxies); err != nil {
 		return fmt.Errorf("configure trusted proxies: %w", err)
 	}
