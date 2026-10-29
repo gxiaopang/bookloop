@@ -44,7 +44,8 @@ start_app() {
   # --no-deps prevents a second implicit migration or infrastructure update.
   # Nginx must be recreated: its upstream DNS was resolved at startup.
   compose "$1" up -d --no-build --pull never --no-deps --force-recreate \
-    --wait --wait-timeout 180 backend worker nginx &&
+    --wait --wait-timeout 180 backend nginx &&
+    compose "$1" up -d --no-build --pull never --no-deps --force-recreate worker &&
     compose "$1" exec -T nginx wget -q -O /dev/null http://127.0.0.1/readyz
 }
 

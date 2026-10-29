@@ -106,7 +106,11 @@ jobs:
         run: docker compose --env-file .env.example --project-name bookloop-ci build
       - name: Start isolated stack and run smoke checks
         run: |
-          docker compose --env-file .env.example --project-name bookloop-ci -f compose.yaml -f compose.production.yaml up -d --no-build --wait --wait-timeout 240
+          compose=(docker compose --env-file .env.example --project-name bookloop-ci -f compose.yaml -f compose.production.yaml)
+          # Some Compose v2 releases treat a disabled inherited image healthcheck
+          # as missing when --wait includes worker. Wait only on probed services.
+          "${compose[@]}" up -d --no-build --wait --wait-timeout 240 mysql redis rabbitmq backend nginx
+          "${compose[@]}" up -d --no-build --no-deps worker
           curl --fail --silent --show-error http://127.0.0.1:8088/healthz
           curl --fail --silent --show-error http://127.0.0.1:8088/readyz
           curl --fail --silent --show-error http://127.0.0.1:8088/api/v1/books
