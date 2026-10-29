@@ -94,7 +94,7 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 					SellerID:           lockedBook.SellerID,
 					BookTitle:          lockedBook.Title,
 					BookPrice:          lockedBook.Price,
-					Status:             model.OrderStatusPendingPayment,
+					Status:             model.OrderStatusPendingHandover,
 					IdempotencyKey:     fmt.Sprintf("buyer-intent-%d", index),
 					RequestFingerprint: fmt.Sprintf("%064d", index+1),
 					ExpiresAt:          now.Add(15 * time.Minute),
@@ -129,7 +129,7 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 	if err := db.Find(&persisted).Error; err != nil {
 		t.Fatalf("list persisted orders: %v", err)
 	}
-	if len(persisted) != 1 || persisted[0].Status != model.OrderStatusPendingPayment ||
+	if len(persisted) != 1 || persisted[0].Status != model.OrderStatusPendingHandover ||
 		persisted[0].ActiveBookID == nil || *persisted[0].ActiveBookID != book.ID {
 		t.Fatalf("persisted orders = %+v, want one active pending order", persisted)
 	}
@@ -149,7 +149,7 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 		SellerID:           sellerID,
 		BookTitle:          book.Title,
 		BookPrice:          book.Price,
-		Status:             model.OrderStatusPaid,
+		Status:             model.OrderStatusCompleted,
 		IdempotencyKey:     "another-intent",
 		RequestFingerprint: strings.Repeat("a", 64),
 		ExpiresAt:          time.Now().UTC().Add(time.Hour),
@@ -173,35 +173,12 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 			return err
 		}
 		if err := store.UpdateOrderStatus(context.Background(), lockedOrder.ID,
-			model.OrderStatusPendingPayment, model.OrderStatusPaid, map[string]any{"paid_at": now}); err != nil {
+			model.OrderStatusPendingHandover, model.OrderStatusCompleted, map[string]any{"completed_at": now}); err != nil {
 			return err
 		}
 		return store.UpdateBookStatus(context.Background(), lockedBook.ID, model.BookStatusReserved, model.BookStatusSold)
 	}); err != nil {
-		t.Fatalf("pay transaction: %v", err)
-	}
-	if err := db.Take(winner, winner.ID).Error; err != nil {
-		t.Fatalf("reload paid order: %v", err)
-	}
-	if winner.Status != model.OrderStatusPaid || winner.ActiveBookID == nil || *winner.ActiveBookID != book.ID {
-		t.Fatalf("paid order = %+v, want active_book_id retained", winner)
-	}
-	if err := orders.WithinTransaction(context.Background(), func(store OrderStore) error {
-		if _, err := store.FindBookByIDForUpdate(context.Background(), book.ID); err != nil {
-			return err
-		}
-		lockedOrder, err := store.FindByOrderNoForUpdate(context.Background(), winner.OrderNo)
-		if err != nil {
-			return err
-		}
-		now, err := store.CurrentTime(context.Background())
-		if err != nil {
-			return err
-		}
-		return store.UpdateOrderStatus(context.Background(), lockedOrder.ID,
-			model.OrderStatusPaid, model.OrderStatusCompleted, map[string]any{"completed_at": now})
-	}); err != nil {
-		t.Fatalf("complete transaction: %v", err)
+		t.Fatalf("offline completion transaction: %v", err)
 	}
 	if err := db.Take(winner, winner.ID).Error; err != nil {
 		t.Fatalf("reload completed order: %v", err)
@@ -226,7 +203,7 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 			return err
 		}
 		if err := store.UpdateOrderStatus(context.Background(), lockedOrder.ID,
-			model.OrderStatusPendingPayment, model.OrderStatusCancelled,
+			model.OrderStatusPendingHandover, model.OrderStatusCancelled,
 			map[string]any{"cancelled_at": now, "cancel_reason": "test cancellation"}); err != nil {
 			return err
 		}
@@ -256,8 +233,8 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 		t.Fatalf("Create(duplicate buyer/key) error = %v, want ErrOrderIdempotencyDuplicate", err)
 	}
 	second := createOrderForIntegration(t, orders, releasableBook, buyerIDs[3], "new-key", 101)
-	if second.Status != model.OrderStatusPendingPayment {
-		t.Fatalf("replacement order status = %q, want pending_payment", second.Status)
+	if second.Status != model.OrderStatusPendingHandover {
+		t.Fatalf("replacement order status = %q, want pending_handover", second.Status)
 	}
 	if err := orders.WithinTransaction(context.Background(), func(store OrderStore) error {
 		lockedBook, err := store.FindBookByIDForUpdate(context.Background(), releasableBook.ID)
@@ -273,8 +250,8 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 			return err
 		}
 		if err := store.UpdateOrderStatus(context.Background(), lockedOrder.ID,
-			model.OrderStatusPendingPayment, model.OrderStatusExpired,
-			map[string]any{"cancelled_at": now, "cancel_reason": "payment timeout"}); err != nil {
+			model.OrderStatusPendingHandover, model.OrderStatusExpired,
+			map[string]any{"cancelled_at": now, "cancel_reason": "reservation timeout"}); err != nil {
 			return err
 		}
 		return store.UpdateBookStatus(context.Background(), lockedBook.ID, model.BookStatusReserved, model.BookStatusAvailable)
@@ -288,8 +265,8 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 		t.Fatalf("expired order = %+v, want released active_book_id", second)
 	}
 	third := createOrderForIntegration(t, orders, releasableBook, buyerIDs[4], "after-expiry-key", 102)
-	if third.Status != model.OrderStatusPendingPayment {
-		t.Fatalf("post-expiry replacement status = %q, want pending_payment", third.Status)
+	if third.Status != model.OrderStatusPendingHandover {
+		t.Fatalf("post-expiry replacement status = %q, want pending_handover", third.Status)
 	}
 
 	invalidSelfOrder := &model.Order{
@@ -343,7 +320,7 @@ func assertIdempotencyRecheckUsesCurrentRead(
 				SellerID:           sellerID,
 				BookTitle:          book.Title,
 				BookPrice:          book.Price,
-				Status:             model.OrderStatusPendingPayment,
+				Status:             model.OrderStatusPendingHandover,
 				IdempotencyKey:     key,
 				RequestFingerprint: strings.Repeat("d", 64),
 				ExpiresAt:          now.Add(15 * time.Minute),
@@ -429,11 +406,17 @@ func applyOrderTestSchema(t *testing.T, db *gorm.DB) {
 	if err := execIntegrationMigration(db, readMigration(t, "../../migrations/000002_create_books.up.sql")); err != nil {
 		t.Fatalf("apply books migration: %v", err)
 	}
+	if err := execIntegrationMigration(db, readMigration(t, "../../migrations/000006_require_wechat_contact.up.sql")); err != nil {
+		t.Fatalf("apply contact migration: %v", err)
+	}
 	if err := db.Exec(readMigration(t, "../../migrations/000003_create_favorites.up.sql")).Error; err != nil {
 		t.Fatalf("apply favorites migration: %v", err)
 	}
 	if err := db.Exec(readMigration(t, "../../migrations/000004_create_orders.up.sql")).Error; err != nil {
 		t.Fatalf("apply orders migration: %v", err)
+	}
+	if err := execIntegrationMigration(db, readMigration(t, "../../migrations/000007_use_offline_orders.up.sql")); err != nil {
+		t.Fatalf("apply offline orders migration: %v", err)
 	}
 }
 
@@ -444,8 +427,8 @@ func assertOrderSchema(t *testing.T, db *gorm.DB) {
         WHERE table_schema = DATABASE() AND table_name = 'orders'`).Scan(&columnCount).Error; err != nil {
 		t.Fatalf("count orders columns: %v", err)
 	}
-	if columnCount != 18 {
-		t.Fatalf("orders column count = %d, want 18", columnCount)
+	if columnCount != 17 {
+		t.Fatalf("orders column count = %d, want 17", columnCount)
 	}
 	var tableName, createSQL string
 	if err := db.Raw("SHOW CREATE TABLE orders").Row().Scan(&tableName, &createSQL); err != nil {
@@ -491,7 +474,7 @@ func createOrderForIntegration(
 			SellerID:           lockedBook.SellerID,
 			BookTitle:          lockedBook.Title,
 			BookPrice:          lockedBook.Price,
-			Status:             model.OrderStatusPendingPayment,
+			Status:             model.OrderStatusPendingHandover,
 			IdempotencyKey:     key,
 			RequestFingerprint: fmt.Sprintf("%064d", sequence),
 			ExpiresAt:          now.Add(15 * time.Minute),

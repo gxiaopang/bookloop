@@ -17,14 +17,14 @@ func TestNotificationProcessesOrderEventIdempotently(t *testing.T) {
 	service := NewNotification(repository)
 	payload, err := json.Marshal(domainevent.OrderPayload{
 		OrderNo: "01HF7YAT00ABCDEFGHJKMNPQRS", BuyerID: 20, SellerID: 10,
-		BookID: 7, BookTitle: "Database Systems", Status: "paid",
+		BookID: 7, BookTitle: "Database Systems", Status: "completed",
 	})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
 	envelope := domainevent.Envelope{
 		ID: 9, AggregateType: "order", AggregateID: "01HF7YAT00ABCDEFGHJKMNPQRS",
-		Type: domainevent.OrderPaid, Payload: payload, OccurredAt: time.Now().UTC(),
+		Type: domainevent.OrderCompleted, Payload: payload, OccurredAt: time.Now().UTC(),
 	}
 	created, err := service.Process(context.Background(), envelope)
 	if err != nil || !created {

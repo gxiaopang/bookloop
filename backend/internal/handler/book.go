@@ -93,6 +93,14 @@ func (h *Book) Update(c *gin.Context) {
 }
 
 func (h *Book) UploadImage(c *gin.Context) {
+	h.uploadImage(c, false)
+}
+
+func (h *Book) UploadWechatQRCode(c *gin.Context) {
+	h.uploadImage(c, true)
+}
+
+func (h *Book) uploadImage(c *gin.Context, contact bool) {
 	user, bookID, ok := h.currentUserAndBookID(c)
 	if !ok {
 		return
@@ -129,12 +137,19 @@ func (h *Book) UploadImage(c *gin.Context) {
 			h.logger.Warn("failed to close uploaded image", "error", closeErr)
 		}
 	}()
-	response, err := h.service.UploadImage(c.Request.Context(), user.ID, bookID, file)
+	var response any
+	status := http.StatusCreated
+	if contact {
+		response, err = h.service.UploadWechatQRCode(c.Request.Context(), user.ID, bookID, file)
+		status = http.StatusOK
+	} else {
+		response, err = h.service.UploadImage(c.Request.Context(), user.ID, bookID, file)
+	}
 	if err != nil {
 		writeServiceError(c, h.logger, err)
 		return
 	}
-	c.JSON(http.StatusCreated, dto.SuccessResponse(response, middleware.RequestIDFromContext(c)))
+	c.JSON(status, dto.SuccessResponse(response, middleware.RequestIDFromContext(c)))
 }
 
 func (h *Book) DeleteImage(c *gin.Context) {

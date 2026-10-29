@@ -1,0 +1,228 @@
+name: CI and release
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy this tested main revision to production
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-password
+          MYSQL_DATABASE: bookloop_test
+        ports: [3306:3306]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-only-password --silent"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+      redis:
+        image: redis:7-alpine
+        ports: [6379:6379]
+        options: >-
+          --health-cmd="redis-cli ping" --health-interval=5s
+          --health-timeout=3s --health-retries=12
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      CGO_ENABLED: '1'
+      BOOKLOOP_TEST_MYSQL_DSN: root:ci-only-password@tcp(127.0.0.1:3306)/bookloop_test?parseTime=true&multiStatements=true
+      BOOKLOOP_TEST_REDIS_ADDR: 127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - name: Unit, concurrency and real MySQL/Redis integration tests
+        run: go test -race -count=1 ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm test
+      # build runs vue-tsc before Vite.
+      - run: npm run build
+
+  images:
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend: ${{ steps.publish.outputs.backend }}
+      nginx: ${{ steps.publish.outputs.nginx }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set unique image names
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          repository=${REPOSITORY,,}
+          tag="sha-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "BOOKLOOP_BACKEND_IMAGE=ghcr.io/${repository}-backend:$tag" >> "$GITHUB_ENV"
+          echo "BOOKLOOP_NGINX_IMAGE=ghcr.io/${repository}-nginx:$tag" >> "$GITHUB_ENV"
+      - name: Validate scripts and deployment failure paths
+        run: |
+          bash -n deploy/release.sh deploy/test-release.sh
+          bash deploy/test-release.sh
+      - name: Build application images
+        run: docker compose --env-file .env.example --project-name bookloop-ci build
+      - name: Start isolated stack and run smoke checks
+        run: |
+          docker compose --env-file .env.example --project-name bookloop-ci -f compose.yaml -f compose.production.yaml up -d --no-build --wait --wait-timeout 240
+          curl --fail --silent --show-error http://127.0.0.1:8088/healthz
+          curl --fail --silent --show-error http://127.0.0.1:8088/readyz
+          curl --fail --silent --show-error http://127.0.0.1:8088/api/v1/books
+          curl --fail --silent --show-error http://127.0.0.1:8088/ > /dev/null
+          docker compose --env-file .env.example --project-name bookloop-ci exec -T nginx nginx -t
+          # Check the production merge too, without printing any environment values.
+          docker compose --env-file .env.example -f compose.yaml -f compose.production.yaml config --quiet
+      - name: Show failure diagnostics
+        if: failure()
+        run: |
+          docker compose --env-file .env.example --project-name bookloop-ci ps -a
+          docker compose --env-file .env.example --project-name bookloop-ci logs --tail=100 migrate backend worker nginx
+      - name: Publish the tested images and record immutable digests
+        id: publish
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          docker push "$BOOKLOOP_BACKEND_IMAGE"
+          docker push "$BOOKLOOP_NGINX_IMAGE"
+          backend=$(docker image inspect "$BOOKLOOP_BACKEND_IMAGE" --format '{{index .RepoDigests 0}}')
+          nginx=$(docker image inspect "$BOOKLOOP_NGINX_IMAGE" --format '{{index .RepoDigests 0}}')
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          echo "nginx=$nginx" >> "$GITHUB_OUTPUT"
+          printf 'BOOKLOOP_RELEASE_SHA=%s\nBOOKLOOP_BACKEND_IMAGE=%s\nBOOKLOOP_NGINX_IMAGE=%s\n' \
+            "$GITHUB_SHA" "$backend" "$nginx" > release.env
+          cat release.env >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          name: release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            release.env
+            compose.yaml
+            compose.production.yaml
+            deploy/release.sh
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove disposable CI containers and volumes
+        if: always()
+        run: |
+          docker logout ghcr.io
+          docker compose --env-file .env.example --project-name bookloop-ci down --volumes --remove-orphans
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy && github.ref == 'refs/heads/main'
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    environment:
+      name: production
+      url: ${{ vars.DEPLOY_URL || 'https://byteneat.top' }}
+    concurrency:
+      group: bookloop-production
+      cancel-in-progress: false
+    env:
+      SSH_HOST: ${{ vars.DEPLOY_HOST || '8.137.191.24' }}
+      SSH_USER: ${{ vars.DEPLOY_USER || 'bookloop-deploy' }}
+      SSH_PORT: ${{ vars.DEPLOY_PORT || '22' }}
+      DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT || '/srv/bookloop' }}
+      DEPLOY_URL: ${{ vars.DEPLOY_URL || 'https://byteneat.top' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare SSH and release bundle
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          BACKEND_IMAGE: ${{ needs.images.outputs.backend }}
+          NGINX_IMAGE: ${{ needs.images.outputs.nginx }}
+        run: |
+          [[ "$SSH_HOST" =~ ^[a-zA-Z0-9.:-]+$ ]]
+          [[ "$SSH_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_-]*$ ]]
+          [[ "$SSH_PORT" =~ ^[0-9]+$ ]] && (( SSH_PORT > 0 && SSH_PORT < 65536 ))
+          [[ "$DEPLOY_ROOT" =~ ^/[a-zA-Z0-9/_-]+$ && "$DEPLOY_ROOT" != / ]]
+          [[ "$DEPLOY_URL" =~ ^https?://[^[:space:]]+$ ]]
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          umask 077
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/bookloop_deploy_key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$RUNNER_TEMP/bookloop_known_hosts"
+          printf 'BOOKLOOP_RELEASE_SHA=%s\nBOOKLOOP_BACKEND_IMAGE=%s\nBOOKLOOP_NGINX_IMAGE=%s\n' \
+            "$GITHUB_SHA" "$BACKEND_IMAGE" "$NGINX_IMAGE" > release.env
+          tar -czf "$RUNNER_TEMP/bookloop-release.tar.gz" compose.yaml compose.production.yaml deploy/release.sh release.env
+      - name: Transfer and deploy exact tested release
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          release_id="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          release_dir="$DEPLOY_ROOT/releases/$release_id"
+          [[ "$GHCR_USER" =~ ^[a-zA-Z0-9_-]+$ ]]
+          ssh_args=(-i "$RUNNER_TEMP/bookloop_deploy_key" -p "$SSH_PORT"
+            -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$RUNNER_TEMP/bookloop_known_hosts")
+          ssh "${ssh_args[@]}" "$SSH_USER@$SSH_HOST" \
+            "set -eu; umask 077; test ! -e '$release_dir'; mkdir -p '$release_dir'; tar -xzf - -C '$release_dir'" \
+            < "$RUNNER_TEMP/bookloop-release.tar.gz"
+          # The job token is short lived. Never include it in a release artifact.
+          printf '%s' "$GHCR_TOKEN" | ssh "${ssh_args[@]}" "$SSH_USER@$SSH_HOST" \
+            "set -eu
+            umask 077
+            export DOCKER_CONFIG='$release_dir/.docker'
+            mkdir -p \"\$DOCKER_CONFIG\"
+            trap 'rm -rf \"\$DOCKER_CONFIG\"' EXIT
+            docker login ghcr.io -u '$GHCR_USER' --password-stdin
+            bash '$release_dir/deploy/release.sh' deploy '$DEPLOY_ROOT' '$release_id'"
+      - name: Check public entrypoint
+        run: |
+          curl --fail --silent --show-error --retry 3 --retry-delay 5 --max-time 20 "${DEPLOY_URL%/}/readyz"
+          curl --fail --silent --show-error --max-time 20 "${DEPLOY_URL%/}/" > /dev/null
+      - name: Remove SSH material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/bookloop_deploy_key" "$RUNNER_TEMP/bookloop_known_hosts"

@@ -33,7 +33,7 @@ x-backend-environment: &backend-environment
   UPLOAD_DIR: /app/uploads
   UPLOAD_PUBLIC_PREFIX: /uploads/
   UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
-  ORDER_PAYMENT_TIMEOUT: ${ORDER_PAYMENT_TIMEOUT:-15m}
+  ORDER_RESERVATION_TIMEOUT: ${ORDER_RESERVATION_TIMEOUT:-15m}
   IDEMPOTENCY_PROCESSING_TTL: ${IDEMPOTENCY_PROCESSING_TTL:-30s}
   IDEMPOTENCY_RESULT_TTL: ${IDEMPOTENCY_RESULT_TTL:-24h}
   IDEMPOTENCY_ALLOW_DEGRADED: ${IDEMPOTENCY_ALLOW_DEGRADED:-true}
@@ -105,7 +105,7 @@ services:
       - no-new-privileges:true
 
   migrate:
-    image: bookloop-backend:local
+    image: ${BOOKLOOP_BACKEND_IMAGE:-bookloop-backend:local}
     entrypoint: ["/app/migrate"]
     command: ["-dir", "/app/migrations"]
     environment: *backend-environment
@@ -124,7 +124,7 @@ services:
       - no-new-privileges:true
 
   backend:
-    image: bookloop-backend:local
+    image: ${BOOKLOOP_BACKEND_IMAGE:-bookloop-backend:local}
     build: *backend-build
     restart: unless-stopped
     init: true
@@ -154,7 +154,7 @@ services:
     stop_grace_period: 15s
 
   worker:
-    image: bookloop-backend:local
+    image: ${BOOKLOOP_BACKEND_IMAGE:-bookloop-backend:local}
     entrypoint: ["/app/worker"]
     restart: unless-stopped
     init: true
@@ -178,7 +178,7 @@ services:
     stop_grace_period: 15s
 
   nginx:
-    image: bookloop-nginx:local
+    image: ${BOOKLOOP_NGINX_IMAGE:-bookloop-nginx:local}
     build:
       context: ./frontend
       dockerfile: Dockerfile

@@ -272,3 +272,5 @@ h1, h2, h3, p { margin-top: 0; }
   .detail-actions { grid-template-columns: 1fr; }
   .image-manager { grid-template-columns: 1fr; }
 }
+
+.wechat-qr-code { display: block; width: 240px; max-width: 100%; height: 240px; margin: 16px 0; background: #fff; }

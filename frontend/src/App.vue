@@ -29,7 +29,7 @@ onBeforeUnmount(() => window.removeEventListener('bookloop:unauthorized', handle
     <header class="site-header">
       <RouterLink class="brand" :to="{ name: 'market' }">
         <span class="brand-mark">B</span>
-        <span><strong>BookLoop</strong><small>校园好书循环站</small></span>
+        <span><strong>BookLoop</strong><small>好书循环，共享阅读</small></span>
       </RouterLink>
       <nav class="main-nav" aria-label="主导航">
         <RouterLink :to="{ name: 'market' }">逛书市</RouterLink>

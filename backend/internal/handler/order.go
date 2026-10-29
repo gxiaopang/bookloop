@@ -92,10 +92,6 @@ func (h *Order) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, dto.SuccessResponse(response, middleware.RequestIDFromContext(c)))
 }
 
-func (h *Order) Pay(c *gin.Context) {
-	h.action(c, h.service.Pay)
-}
-
 func (h *Order) Cancel(c *gin.Context) {
 	h.action(c, h.service.Cancel)
 }

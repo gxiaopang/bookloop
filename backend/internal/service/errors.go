@@ -17,6 +17,7 @@ var (
 	ErrBookImageNotFound     = errors.New("book image not found")
 	ErrBookImageLimitReached = errors.New("book image limit reached")
 	ErrBookImageRequired     = errors.New("book image required")
+	ErrBookContactRequired   = errors.New("wechat contact QR code required")
 	ErrInvalidImage          = errors.New("invalid image")
 	ErrImageTooLarge         = errors.New("image too large")
 	ErrBookNotAvailable      = errors.New("book not available")

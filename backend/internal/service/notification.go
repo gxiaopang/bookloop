@@ -107,29 +107,23 @@ func notificationCopy(eventType string, payload domainevent.OrderPayload) (strin
 	book := payload.BookTitle
 	switch eventType {
 	case domainevent.OrderCreated:
-		if payload.Status != string(model.OrderStatusPendingPayment) {
+		if payload.Status != string(model.OrderStatusPendingHandover) {
 			return "", "", "", false
 		}
-		return "订单已创建", "你已成功下单《" + book + "》，请在支付截止时间前完成支付。",
-			"你的《" + book + "》收到一笔新订单，正在等待买家支付。", true
-	case domainevent.OrderPaid:
-		if payload.Status != string(model.OrderStatusPaid) {
-			return "", "", "", false
-		}
-		return "订单已支付", "《" + book + "》已支付，请与卖家完成线下交付。",
-			"买家已支付《" + book + "》，请准备线下交付。", true
+		return "订单已创建", "你已成功下单《" + book + "》，请通过卖家微信二维码联系并在预约截止时间前完成线下交付。",
+			"你的《" + book + "》收到一笔新订单，请与买家联系并安排线下交付。", true
 	case domainevent.OrderCancelled:
 		if payload.Status != string(model.OrderStatusCancelled) {
 			return "", "", "", false
 		}
 		return "订单已取消", "你已取消《" + book + "》的订单。",
-			"《" + book + "》的订单已被买家取消，商品已恢复可售。", true
+			"《" + book + "》的订单已被买家取消，商品状态已更新。", true
 	case domainevent.OrderExpired:
 		if payload.Status != string(model.OrderStatusExpired) {
 			return "", "", "", false
 		}
-		return "订单已超时", "《" + book + "》因未及时支付已自动关闭。",
-			"《" + book + "》的待支付订单已超时，商品已恢复可售。", true
+		return "订单已超时", "《" + book + "》因预约超时已自动关闭。",
+			"《" + book + "》的预约订单已超时。", true
 	case domainevent.OrderCompleted:
 		if payload.Status != string(model.OrderStatusCompleted) {
 			return "", "", "", false

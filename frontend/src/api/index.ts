@@ -50,6 +50,11 @@ export const api = {
     form.append('image', file)
     return data<BookImage>(http.post(`/books/${bookId}/images`, form))
   },
+  uploadWechatQRCode(bookId: number, file: File) {
+    const form = new FormData()
+    form.append('image', file)
+    return data<{ wechat_qr_code_url: string }>(http.put(`/books/${bookId}/wechat-qr-code`, form))
+  },
   deleteBookImage(bookId: number, imageId: number) {
     return data<{ deleted: boolean }>(http.delete(`/books/${bookId}/images/${imageId}`))
   },
@@ -76,9 +81,6 @@ export const api = {
   },
   listOrders(as: 'buyer' | 'seller', params: { page: number; page_size: number }) {
     return data<Paginated<Order>>(http.get('/orders', { params: { as, ...params } }))
-  },
-  payOrder(orderNo: string) {
-    return data<Order>(http.post(`/orders/${orderNo}/pay`))
   },
   cancelOrder(orderNo: string) {
     return data<Order>(http.post(`/orders/${orderNo}/cancel`))

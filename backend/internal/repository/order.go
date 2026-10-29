@@ -118,7 +118,7 @@ func (r *OrderRepository) FindPendingByBookForUpdate(ctx context.Context, bookID
 	var order model.Order
 	err := r.db.WithContext(ctx).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("book_id = ? AND status = ?", bookID, model.OrderStatusPendingPayment).
+		Where("book_id = ? AND status = ?", bookID, model.OrderStatusPendingHandover).
 		Take(&order).Error
 	return orderResult(&order, err)
 }
@@ -237,7 +237,7 @@ func (r *OrderRepository) FindExpiredPendingOrderNos(ctx context.Context, limit 
 	var orderNos []string
 	err := r.db.WithContext(ctx).
 		Model(&model.Order{}).
-		Where("status = ? AND expires_at <= UTC_TIMESTAMP(3)", model.OrderStatusPendingPayment).
+		Where("status = ? AND expires_at <= UTC_TIMESTAMP(3)", model.OrderStatusPendingHandover).
 		Order("expires_at ASC, id ASC").
 		Limit(limit).
 		Pluck("order_no", &orderNos).Error

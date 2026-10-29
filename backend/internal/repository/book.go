@@ -33,6 +33,7 @@ type BookListRecord struct {
 type BookStore interface {
 	FindByIDForUpdate(context.Context, uint64) (*model.Book, error)
 	UpdateDetails(context.Context, *model.Book) error
+	UpdateWechatQRCode(context.Context, uint64, string) error
 	UpdateStatus(context.Context, uint64, model.BookStatus) error
 	ListImages(context.Context, uint64) ([]model.BookImage, error)
 	CountImages(context.Context, uint64) (int64, error)
@@ -178,6 +179,12 @@ func (r *BookRepository) UpdateStatus(ctx context.Context, bookID uint64, status
 	return r.db.WithContext(ctx).Model(&model.Book{}).
 		Where("id = ?", bookID).
 		Update("status", status).Error
+}
+
+func (r *BookRepository) UpdateWechatQRCode(ctx context.Context, bookID uint64, imageURL string) error {
+	return r.db.WithContext(ctx).Model(&model.Book{}).
+		Where("id = ?", bookID).
+		Update("wechat_qr_code_url", imageURL).Error
 }
 
 func (r *BookRepository) ListImages(ctx context.Context, bookID uint64) ([]model.BookImage, error) {

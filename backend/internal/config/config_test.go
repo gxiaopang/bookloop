@@ -33,7 +33,7 @@ var requiredEnvironment = map[string]string{
 	"UPLOAD_DIR":                 "./uploads",
 	"UPLOAD_PUBLIC_PREFIX":       "/uploads/",
 	"UPLOAD_MAX_BYTES":           "10485760",
-	"ORDER_PAYMENT_TIMEOUT":      "15m",
+	"ORDER_RESERVATION_TIMEOUT":  "15m",
 	"IDEMPOTENCY_PROCESSING_TTL": "30s",
 	"IDEMPOTENCY_RESULT_TTL":     "24h",
 	"IDEMPOTENCY_ALLOW_DEGRADED": "true",
@@ -62,8 +62,8 @@ func TestLoad(t *testing.T) {
 	if cfg.Upload.MaxBytes != 10*1024*1024 {
 		t.Fatalf("Upload.MaxBytes = %d, want %d", cfg.Upload.MaxBytes, 10*1024*1024)
 	}
-	if cfg.Order.PaymentTimeout != 15*time.Minute {
-		t.Fatalf("Order.PaymentTimeout = %s, want 15m", cfg.Order.PaymentTimeout)
+	if cfg.Order.ReservationTimeout != 15*time.Minute {
+		t.Fatalf("Order.ReservationTimeout = %s, want 15m", cfg.Order.ReservationTimeout)
 	}
 	if cfg.Idempotency.ProcessingTTL != 30*time.Second || cfg.Idempotency.ResultTTL != 24*time.Hour ||
 		!cfg.Idempotency.AllowDegraded {
@@ -143,12 +143,12 @@ func TestLoadRejectsInvalidBcryptCost(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsInvalidOrderPaymentTimeout(t *testing.T) {
+func TestLoadRejectsInvalidOrderReservationTimeout(t *testing.T) {
 	setValidEnvironment(t)
-	t.Setenv("ORDER_PAYMENT_TIMEOUT", "0s")
+	t.Setenv("ORDER_RESERVATION_TIMEOUT", "0s")
 
 	_, err := Load()
-	if err == nil || !strings.Contains(err.Error(), "ORDER_PAYMENT_TIMEOUT must be greater than zero") {
+	if err == nil || !strings.Contains(err.Error(), "ORDER_RESERVATION_TIMEOUT must be greater than zero") {
 		t.Fatalf("Load() error = %v, want order timeout validation error", err)
 	}
 }

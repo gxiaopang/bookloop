@@ -19,6 +19,7 @@ const book = ref<Book | null>(null)
 const loading = ref(false)
 const buying = ref(false)
 const favoriteBusy = ref(false)
+const contactVisible = ref(false)
 const error = ref('')
 const purchaseError = ref('')
 const order = ref<Order | null>(null)
@@ -118,15 +119,21 @@ onMounted(load)
           <h3>卖家描述</h3>
           <p>{{ book.description || '卖家暂未补充描述，可结合实物图片判断书况。' }}</p>
         </div>
-        <div class="seller-note">由校园用户 #{{ book.seller_id }} 发布 · 下单后 15 分钟内完成模拟支付</div>
+        <div class="seller-note">由读者 #{{ book.seller_id }} 发布 · 微信联系，线下协商交易</div>
         <el-alert v-if="purchaseError" :title="purchaseError" type="error" :closable="false" show-icon />
         <el-alert v-if="pendingKey && !order" title="已保留本次购买意图；重试会继续使用同一个幂等键。" type="warning" :closable="false" />
         <el-alert v-if="order" :title="`订单 ${order.order_no} 创建成功`" type="success" :closable="false" show-icon>
-          <template #default><el-button link type="success" @click="router.push({ name: 'orders' })">前往订单支付 →</el-button></template>
+          <template #default><el-button link type="success" @click="router.push({ name: 'orders' })">查看订单并确认线下交付 →</el-button></template>
         </el-alert>
+        <el-dialog v-model="contactVisible" title="联系卖家" width="min(420px, 90vw)">
+          <p>使用微信扫描二维码添加卖家，协商书况、价格和线下交付。</p>
+          <el-image v-if="book.wechat_qr_code_url" class="wechat-qr-code" :src="assetUrl(book.wechat_qr_code_url)" :preview-src-list="[assetUrl(book.wechat_qr_code_url)]" fit="contain" alt="卖家的微信联系二维码" />
+          <p v-else>卖家尚未补充微信联系二维码。</p>
+        </el-dialog>
         <div class="detail-actions">
-          <el-button type="primary" size="large" :loading="buying" :disabled="isOwnBook || Boolean(order)" @click="buy">
-            {{ isOwnBook ? '这是你发布的图书' : pendingKey ? '重试本次购买' : '立即购买' }}
+          <el-button type="primary" size="large" :disabled="!book.wechat_qr_code_url" @click="contactVisible = true">联系卖家</el-button>
+          <el-button size="large" :loading="buying" :disabled="isOwnBook || Boolean(order)" @click="buy">
+            {{ isOwnBook ? '这是你发布的图书' : pendingKey ? '重试本次购买' : '预约购买' }}
           </el-button>
           <el-button size="large" :loading="favoriteBusy" @click="addFavorite">加入收藏</el-button>
         </div>

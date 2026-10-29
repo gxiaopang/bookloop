@@ -71,6 +71,9 @@ func TestFavoriteMigrationAndRepositoryWithMySQL8(t *testing.T) {
 	if err := execIntegrationMigration(db, readMigration(t, "../../migrations/000002_create_books.up.sql")); err != nil {
 		t.Fatalf("apply books migration: %v", err)
 	}
+	if err := execIntegrationMigration(db, readMigration(t, "../../migrations/000006_require_wechat_contact.up.sql")); err != nil {
+		t.Fatalf("apply contact migration: %v", err)
+	}
 	if err := db.Exec(readMigration(t, "../../migrations/000003_create_favorites.up.sql")).Error; err != nil {
 		t.Fatalf("apply favorites migration: %v", err)
 	}

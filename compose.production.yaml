@@ -1,0 +1,40 @@
+# Requires Docker Compose >= 2.24.4 for !reset and !override.
+# Use together with compose.yaml, .env and the CI-generated release.env.
+x-production-logging: &production-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  mysql:
+    ports: !reset []
+    logging: *production-logging
+  redis:
+    ports: !reset []
+    logging: *production-logging
+  rabbitmq:
+    ports: !reset []
+    logging: *production-logging
+  migrate:
+    ports: !reset []
+    environment:
+      APP_ENV: production
+    logging: *production-logging
+  backend:
+    build: !reset null
+    ports: !reset []
+    environment:
+      APP_ENV: production
+    logging: *production-logging
+  worker:
+    ports: !reset []
+    environment:
+      APP_ENV: production
+    logging: *production-logging
+  nginx:
+    build: !reset null
+    # Keep the application behind the host's Nginx, even if .env was changed.
+    ports: !override
+      - "127.0.0.1:${BOOKLOOP_HTTP_PORT:-8088}:80"
+    logging: *production-logging

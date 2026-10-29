@@ -5,11 +5,10 @@ import "time"
 type OrderStatus string
 
 const (
-	OrderStatusPendingPayment OrderStatus = "pending_payment"
-	OrderStatusPaid           OrderStatus = "paid"
-	OrderStatusCompleted      OrderStatus = "completed"
-	OrderStatusCancelled      OrderStatus = "cancelled"
-	OrderStatusExpired        OrderStatus = "expired"
+	OrderStatusPendingHandover OrderStatus = "pending_handover"
+	OrderStatusCompleted       OrderStatus = "completed"
+	OrderStatusCancelled       OrderStatus = "cancelled"
+	OrderStatusExpired         OrderStatus = "expired"
 )
 
 type Order struct {
@@ -24,7 +23,6 @@ type Order struct {
 	IdempotencyKey     string      `gorm:"column:idempotency_key;size:64;not null"`
 	RequestFingerprint string      `gorm:"column:request_fingerprint;size:64;not null"`
 	ExpiresAt          time.Time   `gorm:"column:expires_at;not null"`
-	PaidAt             *time.Time  `gorm:"column:paid_at"`
 	CompletedAt        *time.Time  `gorm:"column:completed_at"`
 	CancelledAt        *time.Time  `gorm:"column:cancelled_at"`
 	CancelReason       *string     `gorm:"column:cancel_reason;size:255"`

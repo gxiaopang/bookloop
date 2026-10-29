@@ -53,7 +53,7 @@ onMounted(() => load())
 
 <template>
   <section class="page-width inner-page">
-    <PageHeader eyebrow="YOUR SHELF" title="我的发布" description="新图书默认下架；补充至少一张实物图后再正式上架。">
+    <PageHeader eyebrow="YOUR SHELF" title="我的发布" description="新图书默认下架；上传实物图和微信联系二维码后才能上架。">
       <RouterLink :to="{ name: 'book-new' }"><el-button type="primary" size="large">发布一本书</el-button></RouterLink>
     </PageHeader>
     <PageFeedback :loading="loading" :error="error" :empty="!books.length" empty-title="还没有发布图书" empty-text="从一本闲置好书开始你的 BookLoop。" @retry="load(pagination.page)">
@@ -67,7 +67,7 @@ onMounted(() => load())
           <h3>{{ book.title }}</h3>
           <strong>¥{{ book.price }}</strong>
           <div class="my-book-actions">
-            <RouterLink v-if="['available', 'off_shelf'].includes(book.status)" :to="{ name: 'book-edit', params: { id: book.id } }"><el-button>编辑与图片</el-button></RouterLink>
+            <RouterLink v-if="['available', 'off_shelf'].includes(book.status)" :to="{ name: 'book-edit', params: { id: book.id } }"><el-button>编辑与联系方式</el-button></RouterLink>
             <el-button v-if="['available', 'off_shelf'].includes(book.status)" type="primary" :plain="book.status === 'available'" :loading="acting === book.id" @click="toggleShelf(book)">
               {{ book.status === 'available' ? '下架' : '上架' }}
             </el-button>

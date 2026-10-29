@@ -70,7 +70,7 @@ type UploadConfig struct {
 }
 
 type OrderConfig struct {
-	PaymentTimeout time.Duration
+	ReservationTimeout time.Duration
 }
 
 type IdempotencyConfig struct {
@@ -113,7 +113,7 @@ func Load() (Config, error) {
 	cfg.Upload.Directory = required("UPLOAD_DIR", &validationErrors)
 	cfg.Upload.PublicPrefix = required("UPLOAD_PUBLIC_PREFIX", &validationErrors)
 	cfg.Upload.MaxBytes = requiredInt64("UPLOAD_MAX_BYTES", &validationErrors)
-	cfg.Order.PaymentTimeout = requiredDuration("ORDER_PAYMENT_TIMEOUT", &validationErrors)
+	cfg.Order.ReservationTimeout = requiredDuration("ORDER_RESERVATION_TIMEOUT", &validationErrors)
 	cfg.Idempotency.ProcessingTTL = requiredDuration("IDEMPOTENCY_PROCESSING_TTL", &validationErrors)
 	cfg.Idempotency.ResultTTL = requiredDuration("IDEMPOTENCY_RESULT_TTL", &validationErrors)
 	cfg.Idempotency.AllowDegraded = optionalBool("IDEMPOTENCY_ALLOW_DEGRADED", true, &validationErrors)
@@ -291,8 +291,8 @@ func validate(cfg Config, validationErrors *[]error) {
 	if cfg.Upload.MaxBytes <= 0 {
 		*validationErrors = append(*validationErrors, errors.New("UPLOAD_MAX_BYTES must be greater than zero"))
 	}
-	if cfg.Order.PaymentTimeout <= 0 {
-		*validationErrors = append(*validationErrors, errors.New("ORDER_PAYMENT_TIMEOUT must be greater than zero"))
+	if cfg.Order.ReservationTimeout <= 0 {
+		*validationErrors = append(*validationErrors, errors.New("ORDER_RESERVATION_TIMEOUT must be greater than zero"))
 	}
 	if cfg.Idempotency.ProcessingTTL <= 0 {
 		*validationErrors = append(*validationErrors, errors.New("IDEMPOTENCY_PROCESSING_TTL must be greater than zero"))

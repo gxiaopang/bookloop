@@ -29,8 +29,8 @@ async function load(page = 1) {
   }
 }
 
-async function action(order: Order, operation: 'pay' | 'cancel' | 'complete') {
-  const labels = { pay: '确认模拟支付这笔订单？', cancel: '确认取消这笔订单？', complete: '确认已经完成线下交付？' }
+async function action(order: Order, operation: 'cancel' | 'complete') {
+  const labels = { cancel: '确认取消这笔订单？', complete: '确认已经完成线下交付？' }
   try {
     await ElMessageBox.confirm(labels[operation], '订单操作', { type: operation === 'cancel' ? 'warning' : 'info' })
   } catch {
@@ -38,11 +38,9 @@ async function action(order: Order, operation: 'pay' | 'cancel' | 'complete') {
   }
   acting.value = `${order.order_no}:${operation}`
   try {
-    const updated = operation === 'pay'
-      ? await api.payOrder(order.order_no)
-      : operation === 'cancel'
-        ? await api.cancelOrder(order.order_no)
-        : await api.completeOrder(order.order_no)
+    const updated = operation === 'cancel'
+      ? await api.cancelOrder(order.order_no)
+      : await api.completeOrder(order.order_no)
     const index = orders.value.findIndex((item) => item.order_no === updated.order_no)
     if (index >= 0) orders.value[index] = updated
     ElMessage.success('订单状态已更新')
@@ -63,7 +61,7 @@ onMounted(() => load())
 
 <template>
   <section class="page-width inner-page">
-    <PageHeader eyebrow="TRANSACTIONS" title="我的订单" description="买家完成模拟支付和收货确认；卖家可查看交易进度。" />
+    <PageHeader eyebrow="TRANSACTIONS" title="我的订单" description="通过卖家微信协商线下交易，交付后由买家确认完成。" />
     <el-segmented :model-value="role" :options="[{ label: '我买到的', value: 'buyer' }, { label: '我卖出的', value: 'seller' }]" @change="changeRole" />
     <PageFeedback :loading="loading" :error="error" :empty="!orders.length" empty-title="暂时没有订单" :empty-text="role === 'buyer' ? '从书市挑一本喜欢的书开始吧。' : '发布图书后，订单会显示在这里。'" @retry="load(pagination.page)" />
     <div v-if="!loading && !error && orders.length" class="order-list">
@@ -81,15 +79,14 @@ onMounted(() => load())
           <strong>¥{{ order.book_price }}</strong>
         </div>
         <footer>
-          <span v-if="order.status === 'pending_payment'">支付截止：{{ formatTime(order.expires_at) }}</span>
-          <span v-else-if="order.paid_at">支付时间：{{ formatTime(order.paid_at) }}</span>
+          <span v-if="order.status === 'pending_handover'">预约截止：{{ formatTime(order.expires_at) }}</span>
+          <span v-else-if="order.completed_at">完成时间：{{ formatTime(order.completed_at) }}</span>
           <span v-else>{{ order.cancel_reason || '订单已结束' }}</span>
           <div v-if="role === 'buyer'" class="order-actions">
-            <template v-if="order.status === 'pending_payment'">
+            <template v-if="order.status === 'pending_handover'">
               <el-button :loading="acting === `${order.order_no}:cancel`" @click="action(order, 'cancel')">取消订单</el-button>
-              <el-button type="primary" :loading="acting === `${order.order_no}:pay`" @click="action(order, 'pay')">模拟支付</el-button>
+              <el-button type="primary" :loading="acting === `${order.order_no}:complete`" @click="action(order, 'complete')">确认线下交付</el-button>
             </template>
-            <el-button v-else-if="order.status === 'paid'" type="primary" :loading="acting === `${order.order_no}:complete`" @click="action(order, 'complete')">确认完成</el-button>
           </div>
         </footer>
       </article>

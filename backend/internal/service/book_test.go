@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gxiaopang/bookloop/backend/internal/config"
 	"github.com/gxiaopang/bookloop/backend/internal/dto"
 	"github.com/gxiaopang/bookloop/backend/internal/model"
 	"github.com/gxiaopang/bookloop/backend/internal/repository"
@@ -82,6 +83,12 @@ func TestBookOwnerAndStateRules(t *testing.T) {
 	repository.addImage(book.ID, 1)
 	if _, err := service.PutOnShelf(context.Background(), 99, book.ID); !errors.Is(err, ErrBookNotOwner) {
 		t.Fatalf("PutOnShelf(non-owner) error = %v, want ErrBookNotOwner", err)
+	}
+	if _, err := service.PutOnShelf(context.Background(), 10, book.ID); !errors.Is(err, ErrBookContactRequired) {
+		t.Fatalf("PutOnShelf(no contact) error = %v, want ErrBookContactRequired", err)
+	}
+	if _, err := service.UploadWechatQRCode(context.Background(), 10, book.ID, strings.NewReader("image")); err != nil {
+		t.Fatalf("UploadWechatQRCode() error = %v", err)
 	}
 	if _, err := service.PutOnShelf(context.Background(), 10, book.ID); err != nil {
 		t.Fatalf("PutOnShelf() error = %v", err)
@@ -167,6 +174,90 @@ func TestBookUploadCompensatesFileWhenDatabaseWriteFails(t *testing.T) {
 	defer images.mutex.Unlock()
 	if len(images.deleted) != 1 || !strings.HasPrefix(images.deleted[0], "/uploads/books/generated-") {
 		t.Fatalf("compensating deletes = %+v, want committed file deletion", images.deleted)
+	}
+}
+
+func TestBookContactUploadRequiresImagesOwnerAndMutableStatus(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		sellerID  uint64
+		status    model.BookStatus
+		withImage bool
+		want      error
+	}{
+		{"images first", 10, model.BookStatusOffShelf, false, ErrBookImageRequired},
+		{"owner only", 99, model.BookStatusOffShelf, true, ErrBookNotOwner},
+		{"reserved", 10, model.BookStatusReserved, true, ErrBookStateConflict},
+		{"sold", 10, model.BookStatusSold, true, ErrBookStateConflict},
+		{"blocked", 10, model.BookStatusBlocked, true, ErrBookStateConflict},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := newFakeBookRepository()
+			book := repo.addBook(10, test.status)
+			if test.withImage {
+				repo.addImage(book.ID, 1)
+			}
+			_, err := newTestBookService(repo).UploadWechatQRCode(context.Background(), test.sellerID, book.ID, strings.NewReader("image"))
+			if !errors.Is(err, test.want) {
+				t.Fatalf("upload error = %v, want %v", err, test.want)
+			}
+			if book.WechatQRCodeURL != nil {
+				t.Fatal("rejected upload changed contact")
+			}
+		})
+	}
+}
+
+func TestBookContactReplacementAndDatabaseFailureCleanup(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(strconv.FormatBool(fail), func(t *testing.T) {
+			repo := newFakeBookRepository()
+			book := repo.addBook(10, model.BookStatusAvailable)
+			repo.addImage(book.ID, 1)
+			book.WechatQRCodeURL = testContactURL()
+			oldURL := *book.WechatQRCodeURL
+			if fail {
+				repo.updateContactErr = errors.New("database unavailable")
+			}
+			files := &fakeImageStorage{}
+			svc := NewBook(repo, files, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			result, err := svc.UploadWechatQRCode(context.Background(), 10, book.ID, strings.NewReader("image"))
+			if fail {
+				if !errors.Is(err, repo.updateContactErr) || *book.WechatQRCodeURL != oldURL ||
+					len(files.deleted) != 1 || files.deleted[0] == oldURL {
+					t.Fatalf("failed replacement result/error/contact/deletes = %+v/%v/%v/%v", result, err, book.WechatQRCodeURL, files.deleted)
+				}
+			} else {
+				if err != nil || result.WechatQRCodeURL == oldURL || *book.WechatQRCodeURL != result.WechatQRCodeURL ||
+					len(files.deleted) != 1 || files.deleted[0] != oldURL {
+					t.Fatalf("replacement result/error/deletes = %+v/%v/%v", result, err, files.deleted)
+				}
+				public, err := svc.GetPublic(context.Background(), book.ID)
+				if err != nil || public.WechatQRCodeURL == nil || *public.WechatQRCodeURL != result.WechatQRCodeURL {
+					t.Fatalf("public contact = %+v/%v", public, err)
+				}
+			}
+			if len(repo.images[book.ID]) != 1 {
+				t.Fatal("contact upload changed product images")
+			}
+		})
+	}
+}
+
+func TestBookContactRejectsInvalidImageContent(t *testing.T) {
+	repo := newFakeBookRepository()
+	book := repo.addBook(10, model.BookStatusOffShelf)
+	repo.addImage(book.ID, 1)
+	files, err := storage.NewLocalImages(config.UploadConfig{Directory: t.TempDir(), PublicPrefix: "/uploads/", MaxBytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewBook(repo, files, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, err := svc.UploadWechatQRCode(context.Background(), 10, book.ID, strings.NewReader("not a PNG")); !errors.Is(err, ErrInvalidImage) {
+		t.Fatalf("invalid image error = %v, want ErrInvalidImage", err)
+	}
+	if book.WechatQRCodeURL != nil {
+		t.Fatal("invalid image changed contact")
 	}
 }
 
@@ -266,6 +357,7 @@ type fakeBookRepository struct {
 	nextImageID      uint64
 	lastListQuery    dto.BookListQuery
 	createImageErr   error
+	updateContactErr error
 }
 
 func newFakeBookRepository() *fakeBookRepository {
@@ -439,5 +531,18 @@ func (s *fakeImageStorage) Delete(imageURL string) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	s.deleted = append(s.deleted, imageURL)
+	return nil
+}
+
+func testContactURL() *string {
+	value := "/uploads/books/wechat.png"
+	return &value
+}
+
+func (r *fakeBookRepository) UpdateWechatQRCode(_ context.Context, bookID uint64, imageURL string) error {
+	if r.updateContactErr != nil {
+		return r.updateContactErr
+	}
+	r.books[bookID].WechatQRCodeURL = &imageURL
 	return nil
 }

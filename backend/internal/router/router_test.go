@@ -205,7 +205,7 @@ func TestOrderRoutesRequireAuthentication(t *testing.T) {
 		httptest.NewRequest(http.MethodPost, "/api/v1/orders", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/orders?as=buyer", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/orders/01HF7YAT00ABCDEFGHJKMNPQRS", nil),
-		httptest.NewRequest(http.MethodPost, "/api/v1/orders/01HF7YAT00ABCDEFGHJKMNPQRS/pay", nil),
+		httptest.NewRequest(http.MethodPost, "/api/v1/orders/01HF7YAT00ABCDEFGHJKMNPQRS/complete", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/admin/orders", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/notifications", nil),
 		httptest.NewRequest(http.MethodPut, "/api/v1/notifications/read-all", nil),
@@ -218,6 +218,24 @@ func TestOrderRoutesRequireAuthentication(t *testing.T) {
 			t.Fatalf("%s %s status/body = %d/%s, want 401 UNAUTHORIZED",
 				request.Method, request.URL.Path, response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestPaymentRouteIsRemoved(t *testing.T) {
+	engine := testEngine(t, io.Discard, func(context.Context) error { return nil }, func(context.Context) error { return nil })
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/orders/01HF7YAT00ABCDEFGHJKMNPQRS/pay", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("payment route status = %d, want 404", response.Code)
+	}
+}
+
+func TestWechatContactUploadRequiresAuthentication(t *testing.T) {
+	engine := testEngine(t, io.Discard, func(context.Context) error { return nil }, func(context.Context) error { return nil })
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/v1/books/1/wechat-qr-code", nil))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("upload status = %d, want 401", response.Code)
 	}
 }
 

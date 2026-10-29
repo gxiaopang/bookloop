@@ -38,7 +38,7 @@ func TestOrderHandlerCreateReturnsCreatedThenReplay(t *testing.T) {
 		context.Set("current_user", &model.User{ID: 20})
 		handler.Create(context)
 
-		if response.Code != expectedStatus || !strings.Contains(response.Body.String(), `"status":"pending_payment"`) {
+		if response.Code != expectedStatus || !strings.Contains(response.Body.String(), `"status":"pending_handover"`) {
 			t.Fatalf("attempt %d status/body = %d/%s, want %d pending order", attempt+1, response.Code, response.Body.String(), expectedStatus)
 		}
 		if strings.Contains(response.Body.String(), "idempotency_key") || strings.Contains(response.Body.String(), "request_fingerprint") {
@@ -136,7 +136,7 @@ func (r *handlerOrderRepository) FindBookByIDForUpdate(context.Context, uint64) 
 }
 
 func (r *handlerOrderRepository) FindPendingByBookForUpdate(context.Context, uint64) (*model.Order, error) {
-	if r.order != nil && r.order.Status == model.OrderStatusPendingPayment {
+	if r.order != nil && r.order.Status == model.OrderStatusPendingHandover {
 		return r.order, nil
 	}
 	return nil, repository.ErrOrderNotFound

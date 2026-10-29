@@ -2,7 +2,7 @@ export type UserRole = 'user' | 'admin'
 export type UserStatus = 'active' | 'disabled'
 export type BookCondition = 'new' | 'like_new' | 'good' | 'fair'
 export type BookStatus = 'available' | 'reserved' | 'sold' | 'off_shelf' | 'blocked'
-export type OrderStatus = 'pending_payment' | 'paid' | 'completed' | 'cancelled' | 'expired'
+export type OrderStatus = 'pending_handover' | 'completed' | 'cancelled' | 'expired'
 
 export interface ApiEnvelope<T> {
   code: string
@@ -68,6 +68,7 @@ export interface BookListItem {
 export interface Book extends Omit<BookListItem, 'cover_image_url'> {
   description?: string
   images: BookImage[]
+  wechat_qr_code_url?: string | null
 }
 
 export interface BookPayload {
@@ -100,7 +101,6 @@ export interface Order {
   book_price: string
   status: OrderStatus
   expires_at: string
-  paid_at?: string
   completed_at?: string
   cancelled_at?: string
   cancel_reason?: string

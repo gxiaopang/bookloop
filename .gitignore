@@ -3,6 +3,10 @@
 !.env.example
 certs/
 backups/
+releases/
+current
+previous
+.deploy.lock
 *.log
 
 # Local development instructions and internal documentation

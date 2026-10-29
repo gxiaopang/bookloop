@@ -32,7 +32,7 @@ func TestOrderCreateSnapshotsBookAndReservesIt(t *testing.T) {
 	}
 	if result.Replayed || result.Order.BuyerID != 20 || result.Order.SellerID != 10 ||
 		result.Order.BookTitle != "Database Systems" || result.Order.BookPrice != "35.00" ||
-		result.Order.Status != string(model.OrderStatusPendingPayment) {
+		result.Order.Status != string(model.OrderStatusPendingHandover) {
 		t.Fatalf("Create() = %+v, want pending order with database snapshot", result)
 	}
 	if repository.books[7].Status != model.BookStatusReserved {
@@ -54,7 +54,7 @@ func TestOrderCreateSnapshotsBookAndReservesIt(t *testing.T) {
 func TestOrderCreateEnforcesBuyerSellerAndAvailabilityRules(t *testing.T) {
 	repository := newFakeOrderRepository()
 	repository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Status: model.BookStatusAvailable}
+	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	repository.books[2] = &model.Book{ID: 2, SellerID: 10, Status: model.BookStatusOffShelf}
 	service := newTestOrderService(repository)
 
@@ -76,8 +76,8 @@ func TestOrderCreateEnforcesBuyerSellerAndAvailabilityRules(t *testing.T) {
 func TestOrderCreateDatabaseIdempotency(t *testing.T) {
 	repository := newFakeOrderRepository()
 	repository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
-	repository.books[2] = &model.Book{ID: 2, SellerID: 10, Title: "Two", Price: "20.00", Status: model.BookStatusAvailable}
+	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
+	repository.books[2] = &model.Book{ID: 2, SellerID: 10, Title: "Two", Price: "20.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	service := newTestOrderService(repository)
 
 	first, err := service.Create(context.Background(), 20, 1, "same-key")
@@ -99,7 +99,7 @@ func TestOrderCreateDatabaseIdempotency(t *testing.T) {
 func TestOrderRedisIdempotencyAcquireCompleteAndReplay(t *testing.T) {
 	ordersRepository := newFakeOrderRepository()
 	ordersRepository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	ordersRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	ordersRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	idempotency := &fakeOrderIdempotency{claim: &repositorypkgIdempotencyClaimAcquired}
 	service := newTestOrderServiceWithIdempotency(ordersRepository, idempotency, true)
 
@@ -160,7 +160,7 @@ func TestOrderRedisIdempotencyRebuildsResultAfterCacheClear(t *testing.T) {
 func TestOrderRedisIdempotencyProcessingConflictAndCommittedRecovery(t *testing.T) {
 	ordersRepository := newFakeOrderRepository()
 	ordersRepository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	ordersRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	ordersRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	idempotency := &fakeOrderIdempotency{claim: &repository.IdempotencyClaim{State: repository.IdempotencyProcessing}}
 	service := newTestOrderServiceWithIdempotency(ordersRepository, idempotency, true)
 
@@ -197,7 +197,7 @@ func TestOrderRedisFailureDegradesAccordingToConfiguration(t *testing.T) {
 
 	degradedRepository := newFakeOrderRepository()
 	degradedRepository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	degradedRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	degradedRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	degraded := newTestOrderServiceWithIdempotency(
 		degradedRepository,
 		&fakeOrderIdempotency{acquireErr: redisError},
@@ -212,7 +212,7 @@ func TestOrderRedisFailureDegradesAccordingToConfiguration(t *testing.T) {
 
 	strictRepository := newFakeOrderRepository()
 	strictRepository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	strictRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Status: model.BookStatusAvailable}
+	strictRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	strict := newTestOrderServiceWithIdempotency(
 		strictRepository,
 		&fakeOrderIdempotency{acquireErr: redisError},
@@ -229,7 +229,7 @@ func TestOrderRedisFailureDegradesAccordingToConfiguration(t *testing.T) {
 func TestOrderRedisClaimReleaseAndCompletionFailure(t *testing.T) {
 	ordersRepository := newFakeOrderRepository()
 	ordersRepository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	ordersRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	ordersRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	idempotency := &fakeOrderIdempotency{
 		claim:       &repositorypkgIdempotencyClaimAcquired,
 		completeErr: errors.New("cache write failed"),
@@ -244,7 +244,7 @@ func TestOrderRedisClaimReleaseAndCompletionFailure(t *testing.T) {
 
 	failedRepository := newFakeOrderRepository()
 	failedRepository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	failedRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Status: model.BookStatusAvailable}
+	failedRepository.books[1] = &model.Book{ID: 1, SellerID: 10, Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	failedIdempotency := &fakeOrderIdempotency{claim: &repositorypkgIdempotencyClaimAcquired}
 	failed := newTestOrderServiceWithIdempotency(failedRepository, failedIdempotency, true)
 	if _, err := failed.Create(context.Background(), 10, 1, "business-failure"); !errors.Is(err, ErrCannotPurchaseOwnBook) {
@@ -258,7 +258,7 @@ func TestOrderRedisClaimReleaseAndCompletionFailure(t *testing.T) {
 func TestOrderConcurrentPurchaseHasOneWinner(t *testing.T) {
 	repository := newFakeOrderRepository()
 	repository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	service := newTestOrderService(repository)
 
 	start := make(chan struct{})
@@ -293,28 +293,18 @@ func TestOrderConcurrentPurchaseHasOneWinner(t *testing.T) {
 	}
 }
 
-func TestOrderPayAndCompleteStateMachine(t *testing.T) {
+func TestOrderOfflineCompleteStateMachine(t *testing.T) {
 	repository := newFakeOrderRepository()
 	repository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	service := newTestOrderService(repository)
-	created, err := service.Create(context.Background(), 20, 1, "pay-flow")
+	created, err := service.Create(context.Background(), 20, 1, "offline-flow")
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 
-	if _, err := service.Pay(context.Background(), 99, created.Order.OrderNo); !errors.Is(err, ErrOrderAccessDenied) {
-		t.Fatalf("Pay(non-buyer) error = %v, want ErrOrderAccessDenied", err)
-	}
-	paid, err := service.Pay(context.Background(), 20, created.Order.OrderNo)
-	if err != nil {
-		t.Fatalf("Pay() error = %v", err)
-	}
-	if paid.Status != string(model.OrderStatusPaid) || repository.books[1].Status != model.BookStatusSold {
-		t.Fatalf("paid/status = %+v/%q, want paid/sold", paid, repository.books[1].Status)
-	}
-	if repeated, err := service.Pay(context.Background(), 20, created.Order.OrderNo); err != nil || repeated.Status != string(model.OrderStatusPaid) {
-		t.Fatalf("repeated Pay() = %+v/%v, want current paid order", repeated, err)
+	if _, err := service.Complete(context.Background(), 99, created.Order.OrderNo); !errors.Is(err, ErrOrderAccessDenied) {
+		t.Fatalf("Complete(non-buyer) error = %v, want ErrOrderAccessDenied", err)
 	}
 	completed, err := service.Complete(context.Background(), 20, created.Order.OrderNo)
 	if err != nil {
@@ -323,6 +313,12 @@ func TestOrderPayAndCompleteStateMachine(t *testing.T) {
 	if completed.Status != string(model.OrderStatusCompleted) || repository.books[1].Status != model.BookStatusSold {
 		t.Fatalf("completed/status = %+v/%q, want completed/sold", completed, repository.books[1].Status)
 	}
+	if completed.CompletedAt == nil {
+		t.Fatal("offline completion must only set completed_at")
+	}
+	if repeated, err := service.Complete(context.Background(), 20, created.Order.OrderNo); err != nil || repeated.Status != string(model.OrderStatusCompleted) {
+		t.Fatalf("repeated Complete() = %+v/%v", repeated, err)
+	}
 	if _, err := service.Cancel(context.Background(), 20, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
 		t.Fatalf("Cancel(completed) error = %v, want ErrOrderStateConflict", err)
 	}
@@ -330,7 +326,7 @@ func TestOrderPayAndCompleteStateMachine(t *testing.T) {
 	for _, outboxEvent := range repository.outboxEvents {
 		eventTypes = append(eventTypes, outboxEvent.EventType)
 	}
-	wantEvents := []string{domainevent.OrderCreated, domainevent.OrderPaid, domainevent.OrderCompleted}
+	wantEvents := []string{domainevent.OrderCreated, domainevent.OrderCompleted}
 	if fmt.Sprint(eventTypes) != fmt.Sprint(wantEvents) {
 		t.Fatalf("outbox event types = %v, want %v (idempotent repeats must not emit)", eventTypes, wantEvents)
 	}
@@ -339,7 +335,7 @@ func TestOrderPayAndCompleteStateMachine(t *testing.T) {
 func TestOrderCancelAndExpirationReleaseBook(t *testing.T) {
 	repository := newFakeOrderRepository()
 	repository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	service := newTestOrderService(repository)
 
 	first, err := service.Create(context.Background(), 20, 1, "cancel-flow")
@@ -367,16 +363,45 @@ func TestOrderCancelAndExpirationReleaseBook(t *testing.T) {
 		t.Fatalf("Create(after expiry) error = %v", err)
 	}
 	if repository.orders[second.Order.OrderNo].Status != model.OrderStatusExpired ||
-		third.Order.Status != string(model.OrderStatusPendingPayment) || repository.books[1].Status != model.BookStatusReserved {
+		third.Order.Status != string(model.OrderStatusPendingHandover) || repository.books[1].Status != model.BookStatusReserved {
 		t.Fatalf("old/new/book = %q/%q/%q, want expired/pending/reserved",
 			repository.orders[second.Order.OrderNo].Status, third.Order.Status, repository.books[1].Status)
+	}
+}
+
+func TestOrderOfflineCompletionRejectsExpiredAndKeepsIncompleteListingsOffShelf(t *testing.T) {
+	for _, missingContact := range []bool{false, true} {
+		t.Run(fmt.Sprint(missingContact), func(t *testing.T) {
+			repo := newFakeOrderRepository()
+			repo.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
+			repo.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
+			svc := newTestOrderService(repo)
+			created, err := svc.Create(context.Background(), 20, 1, "expire-complete")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if missingContact {
+				repo.books[1].WechatQRCodeURL = nil
+			}
+			repo.now = created.Order.ExpiresAt
+			if _, err := svc.Complete(context.Background(), 20, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
+				t.Fatalf("Complete(expired) error = %v", err)
+			}
+			want := model.BookStatusAvailable
+			if missingContact {
+				want = model.BookStatusOffShelf
+			}
+			if repo.books[1].Status != want || repo.orders[created.Order.OrderNo].Status != model.OrderStatusExpired {
+				t.Fatalf("book/order status = %s/%s", repo.books[1].Status, repo.orders[created.Order.OrderNo].Status)
+			}
+		})
 	}
 }
 
 func TestOrderExpirationScannerUsesDatabaseTime(t *testing.T) {
 	repository := newFakeOrderRepository()
 	repository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	service := newTestOrderService(repository)
 	created, err := service.Create(context.Background(), 20, 1, "scanner-flow")
 	if err != nil {
@@ -398,7 +423,7 @@ func TestOrderExpirationScannerUsesDatabaseTime(t *testing.T) {
 func TestOrderVisibilityAndListsAreParticipantScoped(t *testing.T) {
 	repository := newFakeOrderRepository()
 	repository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
 	service := newTestOrderService(repository)
 	created, err := service.Create(context.Background(), 20, 1, "visibility")
 	if err != nil {
@@ -580,7 +605,7 @@ func (r *fakeOrderRepository) FindBookByIDForUpdate(_ context.Context, bookID ui
 
 func (r *fakeOrderRepository) FindPendingByBookForUpdate(_ context.Context, bookID uint64) (*model.Order, error) {
 	for _, order := range r.orders {
-		if order.BookID == bookID && order.Status == model.OrderStatusPendingPayment {
+		if order.BookID == bookID && order.Status == model.OrderStatusPendingHandover {
 			return order, nil
 		}
 	}
@@ -612,8 +637,8 @@ func (r *fakeOrderRepository) Create(_ context.Context, order *model.Order) erro
 		if existing.BuyerID == order.BuyerID && existing.IdempotencyKey == order.IdempotencyKey {
 			return repository.ErrOrderIdempotencyDuplicate
 		}
-		if existing.BookID == order.BookID && (existing.Status == model.OrderStatusPendingPayment ||
-			existing.Status == model.OrderStatusPaid || existing.Status == model.OrderStatusCompleted) {
+		if existing.BookID == order.BookID && (existing.Status == model.OrderStatusPendingHandover ||
+			existing.Status == model.OrderStatusCompleted) {
 			return repository.ErrOrderActiveBookDuplicate
 		}
 	}
@@ -658,9 +683,6 @@ func (r *fakeOrderRepository) UpdateOrderStatus(
 		return repository.ErrConcurrentUpdate
 	}
 	found.Status = to
-	if value, ok := updates["paid_at"].(time.Time); ok {
-		found.PaidAt = &value
-	}
 	if value, ok := updates["completed_at"].(time.Time); ok {
 		found.CompletedAt = &value
 	}
@@ -706,7 +728,7 @@ func (r *fakeOrderRepository) list(matches func(*model.Order) bool, page, pageSi
 func (r *fakeOrderRepository) FindExpiredPendingOrderNos(_ context.Context, limit int) ([]string, error) {
 	var orderNos []string
 	for _, order := range r.orders {
-		if order.Status == model.OrderStatusPendingPayment && !order.ExpiresAt.After(r.now) {
+		if order.Status == model.OrderStatusPendingHandover && !order.ExpiresAt.After(r.now) {
 			orderNos = append(orderNos, order.OrderNo)
 		}
 	}

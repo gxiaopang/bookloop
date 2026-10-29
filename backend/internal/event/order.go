@@ -7,7 +7,6 @@ import (
 
 const (
 	OrderCreated   = "order.created.v1"
-	OrderPaid      = "order.paid.v1"
 	OrderCancelled = "order.cancelled.v1"
 	OrderExpired   = "order.expired.v1"
 	OrderCompleted = "order.completed.v1"

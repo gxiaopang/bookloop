@@ -25,3 +25,16 @@ rollback. Phase 2 introduced `users`; Phase 3 introduced `books` and
 `book_images`; Phase 4 introduced `favorites`; Phase 5 introduced `orders`;
 the messaging enhancement introduced `outbox_events`, `processed_messages`, and
 `notifications`.
+
+`000006_require_wechat_contact` adds the separate WeChat contact image URL to
+`books`. Existing available listings are taken off shelf until the seller uploads
+a contact QR image and explicitly republishes. Reserved and sold books are not
+changed. On cancellation or expiration, legacy reservations without contact
+information return to `off_shelf`. Rollback drops the new column but does not
+automatically relist books. Apply this migration before starting the updated backend.
+
+`000007_use_offline_orders` requires empty development orders. It removes
+`paid_at` and replaces payment states with `pending_handover`, retaining the
+unique active-book constraint for pending handovers and completed sales. Reset
+the authorized development environment before applying it; it deliberately
+does not convert legacy payment orders. Rollback also requires empty orders.

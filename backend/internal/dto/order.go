@@ -21,7 +21,6 @@ type OrderResponse struct {
 	BookPrice    string     `json:"book_price"`
 	Status       string     `json:"status"`
 	ExpiresAt    time.Time  `json:"expires_at"`
-	PaidAt       *time.Time `json:"paid_at"`
 	CompletedAt  *time.Time `json:"completed_at"`
 	CancelledAt  *time.Time `json:"cancelled_at"`
 	CancelReason *string    `json:"cancel_reason"`

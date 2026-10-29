@@ -61,15 +61,15 @@ function switchMode(next: 'login' | 'register') {
 <template>
   <section class="auth-page page-width">
     <div class="auth-story">
-      <span class="eyebrow light">YOUR CAMPUS BOOKSHELF</span>
+      <span class="eyebrow light">A BOOKSHELF FOR EVERY READER</span>
       <h1>一本书的价值，<br />不止被读一次。</h1>
-      <p>登录后收藏心仪图书、发起购买，或把闲置书交给下一位读者。</p>
+      <p>每一位爱读书的人，都可以在这里发现好书、联系卖家，或把闲置书交给下一位读者。</p>
       <div class="story-stat"><strong>1–6</strong><span>张实物图<br />看清每处细节</span></div>
     </div>
     <div class="auth-card">
       <span class="eyebrow">BOOKLOOP ACCOUNT</span>
       <h2>{{ title }}</h2>
-      <p>{{ mode === 'login' ? '继续你的校园书籍循环。' : '创建账号，开始第一笔书籍循环。' }}</p>
+      <p>{{ mode === 'login' ? '继续发现好书，与更多读者相遇。' : '创建账号，找到想读的书，分享读过的好书。' }}</p>
       <el-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="submit">
         <el-form-item v-if="mode === 'login'" label="用户名或邮箱" prop="identifier">

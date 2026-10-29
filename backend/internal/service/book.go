@@ -309,6 +309,71 @@ func (s *Book) DeleteImage(ctx context.Context, sellerID, bookID, imageID uint64
 	return nil
 }
 
+// UploadWechatQRCode uses the same validated file storage as product images, but
+// stores contact information separately so it cannot become a cover image.
+func (s *Book) UploadWechatQRCode(ctx context.Context, sellerID, bookID uint64, source io.Reader) (*dto.BookContactResponse, error) {
+	book, err := s.books.FindByID(ctx, bookID)
+	if err != nil {
+		return nil, mapBookRepositoryError(err)
+	}
+	if book.SellerID != sellerID {
+		return nil, ErrBookNotOwner
+	}
+	if !bookImagesMutable(book.Status) {
+		return nil, ErrBookStateConflict
+	}
+	staged, err := s.images.Stage(ctx, source)
+	if err != nil {
+		return nil, mapImageStorageError(err)
+	}
+	defer func() {
+		if err := s.images.Discard(staged); err != nil {
+			s.logger.Warn("failed to discard staged contact image", "error", err)
+		}
+	}()
+	var finalURL string
+	var oldURL *string
+	err = s.books.WithinTransaction(ctx, func(store repository.BookStore) error {
+		locked, err := store.FindByIDForUpdate(ctx, bookID)
+		if err != nil {
+			return mapBookRepositoryError(err)
+		}
+		if locked.SellerID != sellerID {
+			return ErrBookNotOwner
+		}
+		if !bookImagesMutable(locked.Status) {
+			return ErrBookStateConflict
+		}
+		count, err := store.CountImages(ctx, bookID)
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return ErrBookImageRequired
+		}
+		finalURL, err = s.images.Commit(ctx, staged)
+		if err != nil {
+			return mapImageStorageError(err)
+		}
+		oldURL = locked.WechatQRCodeURL
+		return store.UpdateWechatQRCode(ctx, bookID, finalURL)
+	})
+	if err != nil {
+		if finalURL != "" {
+			if cleanupErr := s.images.Delete(finalURL); cleanupErr != nil {
+				s.logger.Warn("failed to compensate contact image", "error", cleanupErr)
+			}
+		}
+		return nil, err
+	}
+	if oldURL != nil && *oldURL != "" {
+		if err := s.images.Delete(*oldURL); err != nil {
+			s.logger.Warn("failed to remove replaced contact image", "error", err)
+		}
+	}
+	return &dto.BookContactResponse{WechatQRCodeURL: finalURL}, nil
+}
+
 func (s *Book) ReorderImages(ctx context.Context, sellerID, bookID uint64, imageIDs []uint64) ([]dto.BookImageResponse, error) {
 	if len(imageIDs) == 0 || len(imageIDs) > maxBookImages {
 		return nil, ErrValidation
@@ -383,6 +448,9 @@ func (s *Book) changeOwnerStatus(
 			}
 			if count > maxBookImages {
 				return ErrBookImageLimitReached
+			}
+			if book.WechatQRCodeURL == nil || strings.TrimSpace(*book.WechatQRCodeURL) == "" {
+				return ErrBookContactRequired
 			}
 		}
 		if err := store.UpdateStatus(ctx, bookID, to); err != nil {
@@ -620,16 +688,17 @@ func bookResponse(book *model.Book, images []model.BookImage) dto.BookResponse {
 		imageResponses = append(imageResponses, imageResponse(image))
 	}
 	return dto.BookResponse{
-		ID:          book.ID,
-		SellerID:    book.SellerID,
-		Title:       book.Title,
-		Description: book.Description,
-		Price:       book.Price,
-		Condition:   string(book.Condition),
-		Status:      string(book.Status),
-		Images:      imageResponses,
-		CreatedAt:   book.CreatedAt,
-		UpdatedAt:   book.UpdatedAt,
+		ID:              book.ID,
+		SellerID:        book.SellerID,
+		Title:           book.Title,
+		Description:     book.Description,
+		Price:           book.Price,
+		Condition:       string(book.Condition),
+		Status:          string(book.Status),
+		Images:          imageResponses,
+		WechatQRCodeURL: book.WechatQRCodeURL,
+		CreatedAt:       book.CreatedAt,
+		UpdatedAt:       book.UpdatedAt,
 	}
 }
 

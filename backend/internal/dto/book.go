@@ -48,16 +48,21 @@ type BookListItemResponse struct {
 }
 
 type BookResponse struct {
-	ID          uint64              `json:"id"`
-	SellerID    uint64              `json:"seller_id"`
-	Title       string              `json:"title"`
-	Description *string             `json:"description"`
-	Price       string              `json:"price"`
-	Condition   string              `json:"condition"`
-	Status      string              `json:"status"`
-	Images      []BookImageResponse `json:"images"`
-	CreatedAt   time.Time           `json:"created_at"`
-	UpdatedAt   time.Time           `json:"updated_at"`
+	WechatQRCodeURL *string             `json:"wechat_qr_code_url"`
+	ID              uint64              `json:"id"`
+	SellerID        uint64              `json:"seller_id"`
+	Title           string              `json:"title"`
+	Description     *string             `json:"description"`
+	Price           string              `json:"price"`
+	Condition       string              `json:"condition"`
+	Status          string              `json:"status"`
+	Images          []BookImageResponse `json:"images"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+}
+
+type BookContactResponse struct {
+	WechatQRCodeURL string `json:"wechat_qr_code_url"`
 }
 
 type PaginationResponse struct {

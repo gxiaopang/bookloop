@@ -22,15 +22,16 @@ const (
 )
 
 type Book struct {
-	ID          uint64        `gorm:"column:id;primaryKey;autoIncrement"`
-	SellerID    uint64        `gorm:"column:seller_id;not null"`
-	Title       string        `gorm:"column:title;size:200;not null"`
-	Description *string       `gorm:"column:description;type:text"`
-	Price       string        `gorm:"column:price;type:decimal(10,2);not null"`
-	Condition   BookCondition `gorm:"column:condition;size:16;not null"`
-	Status      BookStatus    `gorm:"column:status;size:20;not null;default:off_shelf"`
-	CreatedAt   time.Time     `gorm:"column:created_at;not null"`
-	UpdatedAt   time.Time     `gorm:"column:updated_at;not null"`
+	ID              uint64        `gorm:"column:id;primaryKey;autoIncrement"`
+	SellerID        uint64        `gorm:"column:seller_id;not null"`
+	Title           string        `gorm:"column:title;size:200;not null"`
+	Description     *string       `gorm:"column:description;type:text"`
+	Price           string        `gorm:"column:price;type:decimal(10,2);not null"`
+	Condition       BookCondition `gorm:"column:condition;size:16;not null"`
+	Status          BookStatus    `gorm:"column:status;size:20;not null;default:off_shelf"`
+	WechatQRCodeURL *string       `gorm:"column:wechat_qr_code_url;size:2048"`
+	CreatedAt       time.Time     `gorm:"column:created_at;not null"`
+	UpdatedAt       time.Time     `gorm:"column:updated_at;not null"`
 }
 
 func (Book) TableName() string {

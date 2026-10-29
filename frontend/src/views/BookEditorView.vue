@@ -14,6 +14,8 @@ const router = useRouter()
 const editId = route.name === 'book-edit' ? Number(route.params.id) : null
 const formRef = ref<FormInstance>()
 const fileInput = ref<HTMLInputElement>()
+const contactInput = ref<HTMLInputElement>()
+const contactUploading = ref(false)
 const book = ref<Book | null>(null)
 const loading = ref(Boolean(editId))
 const saving = ref(false)
@@ -34,7 +36,7 @@ const rules: FormRules = {
   description: [{ max: 10000, message: '描述最多 10000 字', trigger: 'blur' }],
 }
 const pageTitle = computed(() => editId ? '编辑图书' : book.value ? '补充实物图片' : '发布一本书')
-const canPublish = computed(() => book.value?.status === 'off_shelf' && Boolean(book.value.images.length))
+const canPublish = computed(() => book.value?.status === 'off_shelf' && Boolean(book.value.images.length) && Boolean(book.value.wechat_qr_code_url) && !uploading.value && !contactUploading.value && !imageBusy.value)
 
 async function load() {
   if (!editId || !Number.isInteger(editId) || editId < 1) {
@@ -109,6 +111,27 @@ async function uploadSelected(event: Event) {
   }
 }
 
+async function uploadContact(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!book.value || !file) return
+  if (!['image/jpeg', 'image/png'].includes(file.type)) {
+    ElMessage.warning('请上传 JPEG 或 PNG 格式的微信联系二维码')
+    return
+  }
+  contactUploading.value = true
+  try {
+    const result = await api.uploadWechatQRCode(book.value.id, file)
+    book.value.wechat_qr_code_url = result.wechat_qr_code_url
+    ElMessage.success('微信联系二维码已保存')
+  } catch (cause) {
+    ElMessage.error(errorMessage(cause))
+  } finally {
+    contactUploading.value = false
+  }
+}
+
 async function removeImage(image: BookImage) {
   if (!book.value) return
   try {
@@ -169,7 +192,7 @@ onMounted(() => { if (editId) void load() })
 
 <template>
   <section class="page-width inner-page editor-page">
-    <PageHeader eyebrow="SELL A BOOK" :title="pageTitle" description="先保存图书资料，再上传 1–6 张实物图片；确认顺序后才能上架。">
+    <PageHeader eyebrow="SELL A BOOK" :title="pageTitle" description="先保存图书资料，上传 1–6 张实物图片，再上传微信联系二维码后才能上架。">
       <RouterLink :to="{ name: 'my-books' }"><el-button>返回我的发布</el-button></RouterLink>
     </PageHeader>
     <PageFeedback :loading="loading" :error="error" @retry="load" />
@@ -215,8 +238,20 @@ onMounted(() => { if (editId) void load() })
         <p v-else class="locked-step">完成并保存图书资料后即可上传图片。</p>
       </section>
 
+      <section class="editor-card" :class="{ muted: !book?.images.length }">
+        <div class="step-heading"><span>03</span><div><h2>微信联系方式（必填）</h2><p>上传微信个人联系二维码，买家可扫码联系你并协商线下交易。</p></div></div>
+        <template v-if="book?.images.length">
+          <input ref="contactInput" class="visually-hidden" type="file" accept="image/jpeg,image/png" @change="uploadContact" />
+          <el-image v-if="book.wechat_qr_code_url" class="wechat-qr-code" :src="assetUrl(book.wechat_qr_code_url)" :preview-src-list="[assetUrl(book.wechat_qr_code_url)]" fit="contain" alt="微信联系二维码" />
+          <el-button :loading="contactUploading" :disabled="publishing || uploading || imageBusy" @click="contactInput?.click()">{{ book.wechat_qr_code_url ? '更换微信二维码' : '上传微信二维码' }}</el-button>
+          <el-alert v-if="!book.wechat_qr_code_url" title="必须上传微信联系二维码后才能上架" type="warning" :closable="false" show-icon />
+          <p>请上传可扫码添加好友的微信二维码，上架后会在商品详情公开展示。</p>
+        </template>
+        <p v-else class="locked-step">请先上传至少一张商品实物图片。</p>
+      </section>
+
       <section class="editor-card publish-card" :class="{ muted: !book }">
-        <div class="step-heading"><span>03</span><div><h2>确认上架</h2><p>上架前再次核对信息和封面顺序。</p></div></div>
+        <div class="step-heading"><span>04</span><div><h2>确认上架</h2><p>上架前再次核对信息、封面顺序和微信联系二维码。</p></div></div>
         <template v-if="book">
           <el-alert v-if="book.status === 'available'" title="当前图书已在公开书市展示；资料修改会立即生效。" type="success" :closable="false" />
           <el-button v-else type="primary" size="large" :disabled="!canPublish" :loading="publishing" @click="publish">确认上架</el-button>

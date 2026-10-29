@@ -43,6 +43,8 @@ func writeServiceError(c *gin.Context, logger *slog.Logger, err error) {
 		c.JSON(http.StatusConflict, dto.ErrorResponse("BOOK_IMAGE_LIMIT_REACHED", "book cannot have more than six images", requestID))
 	case errors.Is(err, service.ErrBookImageRequired):
 		c.JSON(http.StatusConflict, dto.ErrorResponse("BOOK_IMAGE_REQUIRED", "book requires at least one image", requestID))
+	case errors.Is(err, service.ErrBookContactRequired):
+		c.JSON(http.StatusConflict, dto.ErrorResponse("BOOK_CONTACT_REQUIRED", "book requires a WeChat contact QR code", requestID))
 	case errors.Is(err, service.ErrImageTooLarge):
 		c.JSON(http.StatusRequestEntityTooLarge, dto.ErrorResponse("IMAGE_TOO_LARGE", "image exceeds the configured size limit", requestID))
 	case errors.Is(err, service.ErrInvalidImage):

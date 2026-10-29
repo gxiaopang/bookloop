@@ -68,12 +68,30 @@ func TestBookMigrationAndRepositoryWithMySQL8(t *testing.T) {
 	if err := execIntegrationMigration(db, readMigration(t, "../../migrations/000002_create_books.up.sql")); err != nil {
 		t.Fatalf("apply books migration: %v", err)
 	}
+	legacySellerID := createIntegrationUser(t, db, "legacy_seller", "legacy@example.com", model.UserStatusActive)
+	if err := db.Exec("INSERT INTO books (seller_id, title, price, `condition`, status) VALUES (?, 'Legacy listing', 10.00, 'good', 'available')", legacySellerID).Error; err != nil {
+		t.Fatalf("create legacy listing: %v", err)
+	}
+	if err := execIntegrationMigration(db, readMigration(t, "../../migrations/000006_require_wechat_contact.up.sql")); err != nil {
+		t.Fatalf("apply contact migration: %v", err)
+	}
+	var legacy model.Book
+	if err := db.Where("seller_id = ?", legacySellerID).Take(&legacy).Error; err != nil || legacy.Status != model.BookStatusOffShelf || legacy.WechatQRCodeURL != nil {
+		t.Fatalf("migrated legacy listing = %+v/%v, want off-shelf without contact", legacy, err)
+	}
 
 	assertBookSchema(t, db)
 	activeSellerID := createIntegrationUser(t, db, "active_seller", "active@example.com", model.UserStatusActive)
 	disabledSellerID := createIntegrationUser(t, db, "disabled_seller", "disabled@example.com", model.UserStatusDisabled)
 	books := NewBookRepository(db)
 	percentBook := createIntegrationBook(t, books, activeSellerID, "100% Go", "20.00", model.BookConditionGood, model.BookStatusAvailable)
+	if err := books.UpdateWechatQRCode(context.Background(), percentBook.ID, "/uploads/books/wechat.png"); err != nil {
+		t.Fatalf("save contact: %v", err)
+	}
+	contactBook, err := books.FindByID(context.Background(), percentBook.ID)
+	if err != nil || contactBook.WechatQRCodeURL == nil || *contactBook.WechatQRCodeURL != "/uploads/books/wechat.png" {
+		t.Fatalf("reload contact = %+v/%v", contactBook, err)
+	}
 	cheaperBook := createIntegrationBook(t, books, activeSellerID, "100X Go", "10.00", model.BookConditionFair, model.BookStatusAvailable)
 	samePriceBook := createIntegrationBook(t, books, activeSellerID, "Algorithms", "10.00", model.BookConditionGood, model.BookStatusAvailable)
 	createIntegrationBook(t, books, activeSellerID, "Hidden Book", "5.00", model.BookConditionGood, model.BookStatusOffShelf)
@@ -195,7 +213,7 @@ func execIntegrationMigration(db *gorm.DB, migration string) error {
 
 func assertBookSchema(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	for table, expectedColumns := range map[string]int64{"books": 9, "book_images": 5} {
+	for table, expectedColumns := range map[string]int64{"books": 10, "book_images": 5} {
 		var count int64
 		if err := db.Raw(`SELECT COUNT(*) FROM information_schema.columns
             WHERE table_schema = DATABASE() AND table_name = ?`, table).Scan(&count).Error; err != nil {

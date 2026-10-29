@@ -42,6 +42,7 @@ func TestBookHandlerMapsDomainErrorsWithoutInternalDetails(t *testing.T) {
 		{err: service.ErrBookNotOwner, statusCode: http.StatusForbidden, code: "BOOK_NOT_OWNER"},
 		{err: service.ErrBookNotFound, statusCode: http.StatusNotFound, code: "BOOK_NOT_FOUND"},
 		{err: service.ErrBookStateConflict, statusCode: http.StatusConflict, code: "BOOK_STATE_CONFLICT"},
+		{err: service.ErrBookContactRequired, statusCode: http.StatusConflict, code: "BOOK_CONTACT_REQUIRED"},
 		{err: service.ErrBookImageRequired, statusCode: http.StatusConflict, code: "BOOK_IMAGE_REQUIRED"},
 		{err: service.ErrImageTooLarge, statusCode: http.StatusRequestEntityTooLarge, code: "IMAGE_TOO_LARGE"},
 		{err: service.ErrInvalidImage, statusCode: http.StatusUnprocessableEntity, code: "INVALID_IMAGE"},

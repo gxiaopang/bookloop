@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -69,7 +70,7 @@ type orderIdempotencyCounters struct {
 type Order struct {
 	orders             orderRepository
 	idempotency        orderIdempotency
-	paymentTimeout     time.Duration
+	reservationTimeout time.Duration
 	idempotencyOptions OrderIdempotencyOptions
 	orderNumber        orderNumberGenerator
 	logger             *slog.Logger
@@ -84,14 +85,14 @@ type CreateOrderResult struct {
 func NewOrder(
 	orders orderRepository,
 	idempotency orderIdempotency,
-	paymentTimeout time.Duration,
+	reservationTimeout time.Duration,
 	idempotencyOptions OrderIdempotencyOptions,
 	logger *slog.Logger,
 ) *Order {
 	return &Order{
 		orders:             orders,
 		idempotency:        idempotency,
-		paymentTimeout:     paymentTimeout,
+		reservationTimeout: reservationTimeout,
 		idempotencyOptions: idempotencyOptions,
 		orderNumber:        generateOrderNumber,
 		logger:             logger,
@@ -258,7 +259,7 @@ func (s *Order) createWithMySQL(
 					return err
 				}
 				expiredDuringCreate = pending
-				book.Status = model.BookStatusAvailable
+				book.Status = releasedBookStatus(book)
 			}
 			if book.Status != model.BookStatusAvailable {
 				return ErrBookNotAvailable
@@ -285,10 +286,10 @@ func (s *Order) createWithMySQL(
 				SellerID:           book.SellerID,
 				BookTitle:          book.Title,
 				BookPrice:          book.Price,
-				Status:             model.OrderStatusPendingPayment,
+				Status:             model.OrderStatusPendingHandover,
 				IdempotencyKey:     idempotencyKey,
 				RequestFingerprint: fingerprint,
-				ExpiresAt:          now.Add(s.paymentTimeout),
+				ExpiresAt:          now.Add(s.reservationTimeout),
 			}
 			if err := store.Create(ctx, order); err != nil {
 				return err
@@ -305,10 +306,10 @@ func (s *Order) createWithMySQL(
 		if err == nil {
 			if expiredDuringCreate != nil {
 				s.logTransition(expiredDuringCreate, 0,
-					string(model.OrderStatusPendingPayment), string(model.OrderStatusExpired))
+					string(model.OrderStatusPendingHandover), string(model.OrderStatusExpired))
 			}
 			if !replayed {
-				s.logTransition(created, buyerID, "", string(model.OrderStatusPendingPayment))
+				s.logTransition(created, buyerID, "", string(model.OrderStatusPendingHandover))
 			}
 			return &CreateOrderResult{Order: orderResponse(created), Replayed: replayed}, nil
 		}
@@ -506,7 +507,7 @@ func (s *Order) Get(ctx context.Context, actor *model.User, orderNo string) (*dt
 	if !canViewOrder(actor, order) {
 		return nil, ErrOrderAccessDenied
 	}
-	if order.Status == model.OrderStatusPendingPayment {
+	if order.Status == model.OrderStatusPendingHandover {
 		order, _, err = s.expireIfDue(ctx, orderNo)
 		if err != nil {
 			return nil, err
@@ -514,10 +515,6 @@ func (s *Order) Get(ctx context.Context, actor *model.User, orderNo string) (*dt
 	}
 	response := orderResponse(order)
 	return &response, nil
-}
-
-func (s *Order) Pay(ctx context.Context, buyerID uint64, orderNo string) (*dto.OrderResponse, error) {
-	return s.transition(ctx, buyerID, orderNo, orderActionPay)
 }
 
 func (s *Order) Cancel(ctx context.Context, buyerID uint64, orderNo string) (*dto.OrderResponse, error) {
@@ -531,7 +528,6 @@ func (s *Order) Complete(ctx context.Context, buyerID uint64, orderNo string) (*
 type orderAction string
 
 const (
-	orderActionPay      orderAction = "pay"
 	orderActionCancel   orderAction = "cancel"
 	orderActionComplete orderAction = "complete"
 )
@@ -576,47 +572,12 @@ func (s *Order) transition(
 		}
 
 		switch action {
-		case orderActionPay:
-			if order.Status == model.OrderStatusPaid {
-				changed = order
-				return nil
-			}
-			if order.Status != model.OrderStatusPendingPayment {
-				return ErrOrderStateConflict
-			}
-			if !order.ExpiresAt.After(now) {
-				if err := expireLocked(ctx, store, book, order, now); err != nil {
-					return err
-				}
-				changed = order
-				postCommitErr = ErrOrderStateConflict
-				return nil
-			}
-			if book.Status != model.BookStatusReserved {
-				return ErrOrderStateConflict
-			}
-			if err := store.UpdateOrderStatus(ctx, order.ID, model.OrderStatusPendingPayment, model.OrderStatusPaid, map[string]any{
-				"paid_at": now,
-			}); err != nil {
-				return err
-			}
-			if err := store.UpdateBookStatus(ctx, book.ID, model.BookStatusReserved, model.BookStatusSold); err != nil {
-				return err
-			}
-			order.Status = model.OrderStatusPaid
-			order.PaidAt = &now
-			order.UpdatedAt = now
-			if err := enqueueOrderEvent(ctx, store, order, domainevent.OrderPaid, now); err != nil {
-				return err
-			}
-			changed = order
-
 		case orderActionCancel:
 			if order.Status == model.OrderStatusCancelled {
 				changed = order
 				return nil
 			}
-			if order.Status != model.OrderStatusPendingPayment || book.Status != model.BookStatusReserved {
+			if order.Status != model.OrderStatusPendingHandover || book.Status != model.BookStatusReserved {
 				return ErrOrderStateConflict
 			}
 			if !order.ExpiresAt.After(now) {
@@ -628,13 +589,13 @@ func (s *Order) transition(
 				return nil
 			}
 			reason := "cancelled by buyer"
-			if err := store.UpdateOrderStatus(ctx, order.ID, model.OrderStatusPendingPayment, model.OrderStatusCancelled, map[string]any{
+			if err := store.UpdateOrderStatus(ctx, order.ID, model.OrderStatusPendingHandover, model.OrderStatusCancelled, map[string]any{
 				"cancelled_at":  now,
 				"cancel_reason": reason,
 			}); err != nil {
 				return err
 			}
-			if err := store.UpdateBookStatus(ctx, book.ID, model.BookStatusReserved, model.BookStatusAvailable); err != nil {
+			if err := store.UpdateBookStatus(ctx, book.ID, model.BookStatusReserved, releasedBookStatus(book)); err != nil {
 				return err
 			}
 			order.Status = model.OrderStatusCancelled
@@ -651,10 +612,21 @@ func (s *Order) transition(
 				changed = order
 				return nil
 			}
-			if order.Status != model.OrderStatusPaid || book.Status != model.BookStatusSold {
+			if order.Status != model.OrderStatusPendingHandover || book.Status != model.BookStatusReserved {
 				return ErrOrderStateConflict
 			}
-			if err := store.UpdateOrderStatus(ctx, order.ID, model.OrderStatusPaid, model.OrderStatusCompleted, map[string]any{
+			if !order.ExpiresAt.After(now) {
+				if err := expireLocked(ctx, store, book, order, now); err != nil {
+					return err
+				}
+				changed = order
+				postCommitErr = ErrOrderStateConflict
+				return nil
+			}
+			if err := store.UpdateBookStatus(ctx, book.ID, model.BookStatusReserved, model.BookStatusSold); err != nil {
+				return err
+			}
+			if err := store.UpdateOrderStatus(ctx, order.ID, order.Status, model.OrderStatusCompleted, map[string]any{
 				"completed_at": now,
 			}); err != nil {
 				return err
@@ -706,7 +678,7 @@ func (s *Order) ExpireOverdue(ctx context.Context) (int, error) {
 func (s *Order) expireOrdersInPage(ctx context.Context, orders []model.Order) (bool, error) {
 	changed := false
 	for index := range orders {
-		if orders[index].Status != model.OrderStatusPendingPayment {
+		if orders[index].Status != model.OrderStatusPendingHandover {
 			continue
 		}
 		_, expired, err := s.expireIfDue(ctx, orders[index].OrderNo)
@@ -743,7 +715,7 @@ func (s *Order) expireIfDue(ctx context.Context, orderNo string) (*model.Order, 
 			return mapOrderRepositoryError(err)
 		}
 		current = order
-		if order.Status != model.OrderStatusPendingPayment || order.ExpiresAt.After(now) {
+		if order.Status != model.OrderStatusPendingHandover || order.ExpiresAt.After(now) {
 			return nil
 		}
 		if err := expireLocked(ctx, store, book, order, now); err != nil {
@@ -756,7 +728,7 @@ func (s *Order) expireIfDue(ctx context.Context, orderNo string) (*model.Order, 
 		return nil, false, mapOrderRepositoryError(err)
 	}
 	if expired {
-		s.logTransition(current, 0, string(model.OrderStatusPendingPayment), string(model.OrderStatusExpired))
+		s.logTransition(current, 0, string(model.OrderStatusPendingHandover), string(model.OrderStatusExpired))
 	}
 	return current, expired, nil
 }
@@ -768,24 +740,24 @@ func expireLocked(
 	order *model.Order,
 	now time.Time,
 ) error {
-	if book.ID != order.BookID || book.Status != model.BookStatusReserved || order.Status != model.OrderStatusPendingPayment {
+	if book.ID != order.BookID || book.Status != model.BookStatusReserved || order.Status != model.OrderStatusPendingHandover {
 		return ErrOrderStateConflict
 	}
-	reason := "payment timeout"
-	if err := store.UpdateOrderStatus(ctx, order.ID, model.OrderStatusPendingPayment, model.OrderStatusExpired, map[string]any{
+	reason := "reservation timeout"
+	if err := store.UpdateOrderStatus(ctx, order.ID, model.OrderStatusPendingHandover, model.OrderStatusExpired, map[string]any{
 		"cancelled_at":  now,
 		"cancel_reason": reason,
 	}); err != nil {
 		return err
 	}
-	if err := store.UpdateBookStatus(ctx, book.ID, model.BookStatusReserved, model.BookStatusAvailable); err != nil {
+	if err := store.UpdateBookStatus(ctx, book.ID, model.BookStatusReserved, releasedBookStatus(book)); err != nil {
 		return err
 	}
 	order.Status = model.OrderStatusExpired
 	order.CancelledAt = &now
 	order.CancelReason = &reason
 	order.UpdatedAt = now
-	book.Status = model.BookStatusAvailable
+	book.Status = releasedBookStatus(book)
 	return enqueueOrderEvent(ctx, store, order, domainevent.OrderExpired, now)
 }
 
@@ -876,7 +848,6 @@ func orderResponse(order *model.Order) dto.OrderResponse {
 		BookPrice:    order.BookPrice,
 		Status:       string(order.Status),
 		ExpiresAt:    order.ExpiresAt,
-		PaidAt:       order.PaidAt,
 		CompletedAt:  order.CompletedAt,
 		CancelledAt:  order.CancelledAt,
 		CancelReason: order.CancelReason,
@@ -913,4 +884,11 @@ func (s *Order) logTransition(order *model.Order, actorID uint64, from, to strin
 		"from_status", from,
 		"to_status", to,
 	)
+}
+
+func releasedBookStatus(book *model.Book) model.BookStatus {
+	if book.WechatQRCodeURL == nil || strings.TrimSpace(*book.WechatQRCodeURL) == "" {
+		return model.BookStatusOffShelf
+	}
+	return model.BookStatusAvailable
 }

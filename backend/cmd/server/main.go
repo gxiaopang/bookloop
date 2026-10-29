@@ -101,7 +101,7 @@ func run() (returnErr error) {
 	orderService := service.NewOrder(
 		orderRepository,
 		orderIdempotencyRepository,
-		cfg.Order.PaymentTimeout,
+		cfg.Order.ReservationTimeout,
 		service.OrderIdempotencyOptions{
 			ProcessingTTL: cfg.Idempotency.ProcessingTTL,
 			ResultTTL:     cfg.Idempotency.ResultTTL,

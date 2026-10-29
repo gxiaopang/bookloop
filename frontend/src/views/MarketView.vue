@@ -44,9 +44,9 @@ onMounted(() => load())
   <div>
     <section class="hero">
       <div class="hero-copy">
-        <span class="eyebrow light">BOOKS DESERVE ANOTHER CHAPTER</span>
-        <h1>让读过的书，<br /><em>继续被需要。</em></h1>
-        <p>知识不毕业，好书再循环。</p>
+        <span class="eyebrow light">GOOD BOOKS CONNECT PEOPLE</span>
+        <h1>让好书，<br /><em>遇见更多读者。</em></h1>
+        <p>从文学小说到生活读物，发现想读的书，也为闲置好书找到下一位读者。</p>
       </div>
       <div class="hero-art" aria-hidden="true">
         <span class="orbit orbit-one"></span>
@@ -55,7 +55,7 @@ onMounted(() => load())
           <div class="hero-book-kicker"><span>SECOND CHAPTER</span><b>01</b></div>
           <strong class="hero-book-title"><span>BOOK</span><span>LOOP</span></strong>
           <div class="hero-book-footer">
-            <i>校园书市</i>
+            <i>读者书市</i>
             <small>READ · SHARE · REPEAT</small>
           </div>
         </div>
@@ -64,7 +64,7 @@ onMounted(() => load())
 
     <section class="market-section page-width">
       <div class="section-intro">
-        <div><span class="eyebrow">CAMPUS SHELF</span><h2>正在流动的好书</h2></div>
+        <div><span class="eyebrow">A SHELF FOR EVERYONE</span><h2>正在流动的好书</h2></div>
         <span class="result-count">{{ pagination.total }} 本在售</span>
       </div>
 

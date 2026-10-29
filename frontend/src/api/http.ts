@@ -76,6 +76,7 @@ const errorMessages: Record<string, string> = {
   BOOK_NOT_FOUND: '图书不存在或当前不可见',
   BOOK_NOT_OWNER: '只能管理自己发布的图书',
   BOOK_STATE_CONFLICT: '图书当前状态不允许此操作',
+  BOOK_CONTACT_REQUIRED: '请先上传微信联系二维码，再上架商品',
   BOOK_IMAGE_REQUIRED: '上架前至少需要一张实物图片',
   BOOK_IMAGE_LIMIT_REACHED: '每本图书最多上传六张图片',
   INVALID_IMAGE: '仅支持有效的 JPEG 或 PNG 图片',
