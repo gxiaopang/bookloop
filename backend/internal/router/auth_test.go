@@ -24,14 +24,19 @@ import (
 )
 
 func TestAuthAPIRegisterLoginAndCurrentUserNeverExposePasswordHash(t *testing.T) {
-	engine, _ := newAuthTestEngine(t, 15*time.Minute)
+	engine, _, mailer := newAuthTestEngineWithMail(t, 15*time.Minute)
+	codeResponse := performJSONRequest(t, engine, http.MethodPost, "/api/v1/auth/email-codes", map[string]any{"email": "Reader@Example.COM"})
+	if codeResponse.Code != http.StatusOK {
+		t.Fatalf("send code status/body = %d/%s", codeResponse.Code, codeResponse.Body.String())
+	}
 
 	registerResponse := performJSONRequest(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]any{
-		"username": "reader_1",
-		"email":    "Reader@Example.COM",
-		"password": "password-one",
-		"role":     "admin",
-		"status":   "disabled",
+		"username":   "reader_1",
+		"email":      "Reader@Example.COM",
+		"password":   "password-one",
+		"email_code": mailer.code,
+		"role":       "admin",
+		"status":     "disabled",
 	})
 	if registerResponse.Code != http.StatusCreated {
 		t.Fatalf("register status = %d, body = %s", registerResponse.Code, registerResponse.Body.String())
@@ -155,12 +160,22 @@ func TestAdminBookRouteUsesCurrentDatabaseRole(t *testing.T) {
 
 func newAuthTestEngine(t *testing.T, tokenLifetime time.Duration) (*gin.Engine, *apiUserRepository) {
 	t.Helper()
+	engine, users, _ := newAuthTestEngineWithMail(t, tokenLifetime)
+	return engine, users
+}
+
+func newAuthTestEngineWithMail(t *testing.T, tokenLifetime time.Duration) (*gin.Engine, *apiUserRepository, *apiRegistrationMailer) {
+	t.Helper()
 	logger := config.NewLogger(io.Discard, "debug")
 	users := &apiUserRepository{byID: make(map[uint64]*model.User), nextID: 1}
+	mailer := &apiRegistrationMailer{}
+	registration := service.NewRegistration(&apiRegistrationCodes{values: make(map[string]string)}, mailer,
+		"test-secret-with-enough-entropy", logger)
 	authService, err := service.NewAuth(
 		users,
 		service.NewJWTManager("test-secret-with-enough-entropy", "bookloop-test", tokenLifetime),
 		bcrypt.MinCost,
+		registration,
 	)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
@@ -181,7 +196,64 @@ func newAuthTestEngine(t *testing.T, tokenLifetime time.Duration) (*gin.Engine, 
 		handler.NewNotification(nil, logger),
 		handler.NewMessagingStatus(nil, logger),
 		middleware.NewAuthentication(authService, logger),
-	), users
+	), users, mailer
+}
+
+type apiRegistrationMailer struct{ code, email string }
+
+func (m *apiRegistrationMailer) Configured() bool { return true }
+func (m *apiRegistrationMailer) SendRegistrationCode(_ context.Context, email, code string) error {
+	m.email, m.code = email, code
+	return nil
+}
+
+type apiRegistrationCodes struct{ values map[string]string }
+
+func (*apiRegistrationCodes) ReserveSend(context.Context, string, string, time.Duration, time.Duration, int, int) (time.Duration, error) {
+	return 0, nil
+}
+func (r *apiRegistrationCodes) Store(_ context.Context, key, digest string, _ time.Duration) error {
+	r.values[key] = digest
+	return nil
+}
+func (r *apiRegistrationCodes) Consume(_ context.Context, key, digest string, _ int) (bool, error) {
+	if r.values[key] != digest {
+		return false, nil
+	}
+	delete(r.values, key)
+	return true, nil
+}
+
+func TestRegistrationAPIRequiresDeliveredCodeAndNeverReturnsIt(t *testing.T) {
+	engine, users, mailer := newAuthTestEngineWithMail(t, time.Minute)
+	request := map[string]any{"username": "reader", "email": "reader@example.com", "password": "password-one"}
+	response := performJSONRequest(t, engine, http.MethodPost, "/api/v1/auth/register", request)
+	if response.Code != http.StatusBadRequest || len(users.byID) != 0 {
+		t.Fatal("missing email code did not prevent registration")
+	}
+	request["email_code"] = "123456"
+	response = performJSONRequest(t, engine, http.MethodPost, "/api/v1/auth/register", request)
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "EMAIL_CODE_INVALID") || len(users.byID) != 0 {
+		t.Fatal("code never sent was accepted")
+	}
+	response = performJSONRequest(t, engine, http.MethodPost, "/api/v1/auth/email-codes", map[string]string{"email": "Reader@Example.COM"})
+	if response.Code != http.StatusOK || mailer.email != "reader@example.com" {
+		t.Fatal("email send failed")
+	}
+	var envelope struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Data) != 2 || envelope.Data["expires_in"] != float64(300) || envelope.Data["resend_after"] != float64(60) {
+		t.Fatal("send response must only contain timing metadata")
+	}
+	request["email_code"] = mailer.code
+	response = performJSONRequest(t, engine, http.MethodPost, "/api/v1/auth/register", request)
+	if response.Code != http.StatusCreated || len(users.byID) != 1 {
+		t.Fatalf("verified registration failed: %s", response.Body.String())
+	}
 }
 
 func performJSONRequest(

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
-import { errorMessage } from '@/api/http'
+import { ApiError, errorMessage } from '@/api/http'
+import { api } from '@/api'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -12,7 +13,12 @@ const router = useRouter()
 const mode = ref<'login' | 'register'>('login')
 const formRef = ref<FormInstance>()
 const error = ref('')
-const form = reactive({ identifier: '', username: '', email: '', password: '' })
+const form = reactive({ identifier: '', username: '', email: '', password: '', emailCode: '' })
+const sendingCode = ref(false)
+const resendSeconds = ref(0)
+let countdown: ReturnType<typeof setInterval> | undefined
+watch(() => form.email, () => { form.emailCode = '' })
+onUnmounted(() => clearInterval(countdown))
 const title = computed(() => mode.value === 'login' ? '欢迎回来' : '加入 BookLoop')
 const rules: FormRules = {
   identifier: [{ required: true, message: '请输入用户名或邮箱', trigger: 'blur' }],
@@ -23,6 +29,10 @@ const rules: FormRules = {
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },
+  ],
+  emailCode: [
+    { required: true, message: '请输入邮箱验证码', trigger: 'blur' },
+    { pattern: /^[0-9]{6}$/, message: '请输入 6 位数字验证码', trigger: 'blur' },
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
@@ -35,7 +45,7 @@ async function submit() {
   error.value = ''
   try {
     if (mode.value === 'register') {
-      await auth.register(form.username, form.email, form.password)
+      await auth.register(form.username, form.email, form.password, form.emailCode)
       ElMessage.success('注册成功，请使用新账号登录')
       form.identifier = form.username
       form.password = ''
@@ -48,6 +58,36 @@ async function submit() {
     await router.replace(redirect)
   } catch (cause) {
     error.value = errorMessage(cause)
+  }
+}
+
+function startCountdown(seconds: number) {
+  clearInterval(countdown)
+  const until = Date.now() + seconds * 1000
+  resendSeconds.value = seconds
+  countdown = setInterval(() => {
+    resendSeconds.value = Math.max(0, Math.ceil((until - Date.now()) / 1000))
+    if (resendSeconds.value === 0) clearInterval(countdown)
+  }, 1000)
+}
+
+async function sendCode() {
+  if (sendingCode.value || resendSeconds.value > 0) return
+  if (!await formRef.value?.validateField('email').then(() => true).catch(() => false)) return
+  sendingCode.value = true
+  error.value = ''
+  try {
+    const result = await api.requestRegistrationCode(form.email)
+    startCountdown(result.resend_after)
+    ElMessage.success('验证码已发送，请查收邮件；5 分钟内有效')
+  } catch (cause) {
+    error.value = errorMessage(cause)
+    if (cause instanceof ApiError && cause.code === 'EMAIL_CODE_RATE_LIMITED') {
+      const retryAfter = (cause.details as { retry_after?: unknown } | undefined)?.retry_after
+      if (typeof retryAfter === 'number' && retryAfter > 0) startCountdown(retryAfter)
+    }
+  } finally {
+    sendingCode.value = false
   }
 }
 
@@ -77,12 +117,20 @@ function switchMode(next: 'login' | 'register') {
         </el-form-item>
         <template v-else>
           <el-form-item label="用户名" prop="username"><el-input v-model="form.username" autocomplete="username" /></el-form-item>
-          <el-form-item label="邮箱" prop="email"><el-input v-model="form.email" autocomplete="email" /></el-form-item>
+          <el-form-item label="邮箱" prop="email"><el-input v-model="form.email" autocomplete="email" :disabled="sendingCode" /></el-form-item>
+          <el-form-item label="邮箱验证码" prop="emailCode">
+            <div class="email-code-row">
+              <el-input v-model="form.emailCode" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位数字" />
+              <el-button native-type="button" :loading="sendingCode" :disabled="resendSeconds > 0 || auth.loading" @click="sendCode">
+                {{ resendSeconds > 0 ? `${resendSeconds} 秒后重发` : '获取验证码' }}
+              </el-button>
+            </div>
+          </el-form-item>
         </template>
         <el-form-item label="密码" prop="password">
           <el-input v-model="form.password" type="password" show-password :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" />
         </el-form-item>
-        <el-button class="full-button" type="primary" native-type="submit" :loading="auth.loading">
+        <el-button class="full-button" type="primary" native-type="submit" :loading="auth.loading" :disabled="sendingCode">
           {{ mode === 'login' ? '登录' : '创建账号' }}
         </el-button>
       </el-form>
@@ -96,4 +144,10 @@ function switchMode(next: 'login' | 'register') {
     </div>
   </section>
 </template>
+
+<style scoped>
+.email-code-row { display: flex; gap: 10px; width: 100%; }
+.email-code-row .el-input { min-width: 0; }
+.email-code-row .el-button { flex-shrink: 0; }
+</style>
 

@@ -37,6 +37,11 @@ var requiredEnvironment = map[string]string{
 	"IDEMPOTENCY_PROCESSING_TTL": "30s",
 	"IDEMPOTENCY_RESULT_TTL":     "24h",
 	"IDEMPOTENCY_ALLOW_DEGRADED": "true",
+	"SMTP_HOST":                  "",
+	"SMTP_PORT":                  "465",
+	"SMTP_USERNAME":              "",
+	"SMTP_PASSWORD":              "",
+	"SMTP_FROM":                  "",
 }
 
 func TestLoad(t *testing.T) {
@@ -170,5 +175,44 @@ func setValidEnvironment(t *testing.T) {
 	t.Helper()
 	for name, value := range requiredEnvironment {
 		t.Setenv(name, value)
+	}
+}
+
+func TestLoadSMTPRequiresCompleteConfigurationWithoutLeakingPassword(t *testing.T) {
+	setValidEnvironment(t)
+	t.Setenv("SMTP_HOST", "smtpdm.aliyun.com")
+	t.Setenv("SMTP_PASSWORD", "secret-value-must-not-appear")
+	_, err := Load()
+	if err == nil || !strings.Contains(err.Error(), "must be configured together") {
+		t.Fatalf("expected partial SMTP configuration error: %v", err)
+	}
+	if strings.Contains(err.Error(), "secret-value-must-not-appear") {
+		t.Fatal("configuration error leaks SMTP password")
+	}
+	t.Setenv("SMTP_USERNAME", "noreply@notify.byteneat.top")
+	t.Setenv("SMTP_FROM", "noreply@notify.byteneat.top")
+	cfg, err := Load()
+	if err != nil || cfg.SMTP.Port != 465 {
+		t.Fatalf("complete SMTP config failed: %v", err)
+	}
+}
+
+func TestLoadSMTPRejectsInvalidHostPortAndHeaderInjection(t *testing.T) {
+	for _, test := range []struct{ key, value string }{
+		{"SMTP_HOST", "smtp://smtpdm.aliyun.com:465"},
+		{"SMTP_PORT", "0"},
+		{"SMTP_FROM", "sender@example.com\r\nBcc: victim@example.com"},
+	} {
+		t.Run(test.key, func(t *testing.T) {
+			setValidEnvironment(t)
+			t.Setenv("SMTP_HOST", "smtpdm.aliyun.com")
+			t.Setenv("SMTP_USERNAME", "sender@example.com")
+			t.Setenv("SMTP_PASSWORD", "test-password")
+			t.Setenv("SMTP_FROM", "sender@example.com")
+			t.Setenv(test.key, test.value)
+			if _, err := Load(); err == nil {
+				t.Fatal("invalid SMTP configuration accepted")
+			}
+		})
 	}
 }

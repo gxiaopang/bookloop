@@ -4,6 +4,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -14,6 +16,7 @@ import (
 
 func writeServiceError(c *gin.Context, logger *slog.Logger, err error) {
 	requestID := middleware.RequestIDFromContext(c)
+	var emailRateLimit *service.EmailCodeRateLimitError
 	switch {
 	case errors.Is(err, service.ErrValidation):
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse("VALIDATION_ERROR", "request validation failed", requestID))
@@ -21,6 +24,14 @@ func writeServiceError(c *gin.Context, logger *slog.Logger, err error) {
 		c.JSON(http.StatusConflict, dto.ErrorResponse("USERNAME_ALREADY_EXISTS", "username already exists", requestID))
 	case errors.Is(err, service.ErrEmailAlreadyExists):
 		c.JSON(http.StatusConflict, dto.ErrorResponse("EMAIL_ALREADY_EXISTS", "email already exists", requestID))
+	case errors.Is(err, service.ErrEmailCodeInvalid):
+		c.JSON(http.StatusBadRequest, dto.ErrorResponse("EMAIL_CODE_INVALID", "email code is invalid or expired", requestID))
+	case errors.As(err, &emailRateLimit):
+		seconds := int((emailRateLimit.RetryAfter + time.Second - 1) / time.Second)
+		c.Header("Retry-After", strconv.Itoa(seconds))
+		response := dto.ErrorResponse("EMAIL_CODE_RATE_LIMITED", "email code requests are too frequent", requestID)
+		response.Data = gin.H{"retry_after": seconds}
+		c.JSON(http.StatusTooManyRequests, response)
 	case errors.Is(err, service.ErrInvalidCredentials):
 		c.JSON(http.StatusUnauthorized, dto.ErrorResponse("INVALID_CREDENTIALS", "invalid username/email or password", requestID))
 	case errors.Is(err, service.ErrUnauthorized):

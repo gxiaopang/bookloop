@@ -38,6 +38,7 @@ func New(
 
 	api := engine.Group("/api/v1")
 	api.POST("/auth/register", auth.Register)
+	api.POST("/auth/email-codes", auth.RequestRegistrationCode)
 	api.POST("/auth/login", auth.Login)
 	api.GET("/books", books.List)
 	api.GET("/books/:book_id", books.Get)

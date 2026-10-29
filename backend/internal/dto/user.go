@@ -3,9 +3,14 @@ package dto
 import "time"
 
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required"`
-	Email    string `json:"email" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Username  string `json:"username" binding:"required"`
+	Email     string `json:"email" binding:"required"`
+	Password  string `json:"password" binding:"required"`
+	EmailCode string `json:"email_code" binding:"required"`
+}
+
+type EmailCodeRequest struct {
+	Email string `json:"email" binding:"required"`
 }
 
 type LoginRequest struct {

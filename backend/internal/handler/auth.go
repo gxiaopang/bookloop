@@ -39,6 +39,19 @@ func (h *Auth) Register(c *gin.Context) {
 	))
 }
 
+func (h *Auth) RequestRegistrationCode(c *gin.Context) {
+	var request dto.EmailCodeRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		writeServiceError(c, h.logger, service.ErrValidation)
+		return
+	}
+	if err := h.service.RequestRegistrationCode(c.Request.Context(), request, c.ClientIP()); err != nil {
+		writeServiceError(c, h.logger, err)
+		return
+	}
+	c.JSON(http.StatusOK, dto.SuccessResponse(gin.H{"expires_in": 300, "resend_after": 60}, middleware.RequestIDFromContext(c)))
+}
+
 func (h *Auth) Login(c *gin.Context) {
 	var request dto.LoginRequest
 	if err := c.ShouldBindJSON(&request); err != nil {

@@ -80,7 +80,9 @@ func run() (returnErr error) {
 	healthHandler := handler.NewHealth(readiness, logger)
 	userRepository := repository.NewUserRepository(mysqlStore.DB)
 	jwtManager := service.NewJWTManager(cfg.JWT.Secret, cfg.JWT.Issuer, cfg.JWT.ExpiresIn)
-	authService, err := service.NewAuth(userRepository, jwtManager, cfg.BcryptCost)
+	registration := service.NewRegistration(repository.NewRegistrationCodeRepository(redisStore.Client),
+		storage.NewSMTPMailer(cfg.SMTP), cfg.JWT.Secret, logger)
+	authService, err := service.NewAuth(userRepository, jwtManager, cfg.BcryptCost, registration)
 	if err != nil {
 		return fmt.Errorf("initialize authentication service: %w", err)
 	}

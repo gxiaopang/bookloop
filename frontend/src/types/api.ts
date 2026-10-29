@@ -15,6 +15,7 @@ export interface ApiFailure {
   code: string
   message: string
   details?: unknown
+  data?: unknown
   request_id?: string
 }
 

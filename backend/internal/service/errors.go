@@ -6,6 +6,7 @@ var (
 	ErrValidation            = errors.New("validation error")
 	ErrUsernameAlreadyExists = errors.New("username already exists")
 	ErrEmailAlreadyExists    = errors.New("email already exists")
+	ErrEmailCodeInvalid      = errors.New("email verification code invalid or expired")
 	ErrInvalidCredentials    = errors.New("invalid credentials")
 	ErrUnauthorized          = errors.New("unauthorized")
 	ErrTokenExpired          = errors.New("token expired")

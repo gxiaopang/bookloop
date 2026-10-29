@@ -18,8 +18,11 @@ async function data<T>(request: Promise<{ data: ApiEnvelope<T> }>): Promise<T> {
 }
 
 export const api = {
-  register(payload: { username: string; email: string; password: string }) {
+  register(payload: { username: string; email: string; password: string; email_code: string }) {
     return data<User>(http.post('/auth/register', payload))
+  },
+  requestRegistrationCode(email: string) {
+    return data<{ expires_in: number; resend_after: number }>(http.post('/auth/email-codes', { email }))
   },
   login(payload: { identifier: string; password: string }) {
     return data<LoginResult>(http.post('/auth/login', payload))

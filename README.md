@@ -28,7 +28,7 @@ BookLoop 面向校园二手书交易场景。卖家上传实物图片和微信�
 
 | 模块 | 功能 |
 |---|---|
-| 用户 | 注册、登录、JWT 身份认证、个人信息查询 |
+| 用户 | 邮箱验证码注册、登录、JWT 身份认证、个人信息查询 |
 | 书市 | 图书浏览、关键词搜索、成色筛选、价格排序、详情查看 |
 | 发布 | 图书创建与编辑、实物图片上传与排序、微信联系二维码上传、上架与下架 |
 | 收藏 | 添加收藏、取消收藏、收藏列表 |
@@ -86,10 +86,15 @@ cp .env.example .env
 
 `.env.example` 中的凭据仅供本地开发使用。部署到公网前，请为 MySQL、Redis 和 JWT 分别生成不同的随机密钥。
 
+注册需要 SMTP 邮件配置。按 [邮箱验证码指南](EMAIL_VERIFICATION.md) 填写 `SMTP_HOST`、
+`SMTP_PORT`、`SMTP_USERNAME`、`SMTP_PASSWORD`、`SMTP_FROM`；未配置时可以启动和浏览书市，
+但获取验证码和新账号注册不会绕过邮箱验证。
+
 ### 3. 启动服务
 
 ```bash
-docker compose up --build -d --wait
+docker compose up --build -d --wait mysql redis rabbitmq backend nginx
+docker compose up -d --no-deps worker
 docker compose ps
 ```
 

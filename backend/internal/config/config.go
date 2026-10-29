@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/mail"
 	"os"
 	"strconv"
 	"strings"
@@ -22,6 +23,15 @@ type Config struct {
 	Upload      UploadConfig
 	Order       OrderConfig
 	Idempotency IdempotencyConfig
+	SMTP        SMTPConfig
+}
+
+type SMTPConfig struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	From     string
 }
 
 type HTTPConfig struct {
@@ -117,6 +127,11 @@ func Load() (Config, error) {
 	cfg.Idempotency.ProcessingTTL = requiredDuration("IDEMPOTENCY_PROCESSING_TTL", &validationErrors)
 	cfg.Idempotency.ResultTTL = requiredDuration("IDEMPOTENCY_RESULT_TTL", &validationErrors)
 	cfg.Idempotency.AllowDegraded = optionalBool("IDEMPOTENCY_ALLOW_DEGRADED", true, &validationErrors)
+	cfg.SMTP.Host = optional("SMTP_HOST")
+	cfg.SMTP.Port = optionalInt("SMTP_PORT", 465, &validationErrors)
+	cfg.SMTP.Username = optional("SMTP_USERNAME")
+	cfg.SMTP.Password = optional("SMTP_PASSWORD")
+	cfg.SMTP.From = optional("SMTP_FROM")
 
 	validate(cfg, &validationErrors)
 	if len(validationErrors) > 0 {
@@ -227,6 +242,21 @@ func requiredDuration(name string, validationErrors *[]error) time.Duration {
 }
 
 func validate(cfg Config, validationErrors *[]error) {
+	if cfg.SMTP.Port < 1 || cfg.SMTP.Port > 65535 {
+		*validationErrors = append(*validationErrors, errors.New("SMTP_PORT must be between 1 and 65535"))
+	}
+	if cfg.SMTP.Host != "" || cfg.SMTP.Username != "" || cfg.SMTP.Password != "" || cfg.SMTP.From != "" {
+		if cfg.SMTP.Host == "" || cfg.SMTP.Username == "" || cfg.SMTP.Password == "" || cfg.SMTP.From == "" {
+			*validationErrors = append(*validationErrors, errors.New("SMTP_HOST, SMTP_USERNAME, SMTP_PASSWORD and SMTP_FROM must be configured together"))
+		}
+		if strings.ContainsAny(cfg.SMTP.Host, "/:\r\n ") {
+			*validationErrors = append(*validationErrors, errors.New("SMTP_HOST must be a hostname without a scheme or port"))
+		}
+		address, err := mail.ParseAddress(cfg.SMTP.From)
+		if err != nil || address.Address != cfg.SMTP.From {
+			*validationErrors = append(*validationErrors, errors.New("SMTP_FROM must be a plain email address"))
+		}
+	}
 	if cfg.AppEnv != "development" && cfg.AppEnv != "test" && cfg.AppEnv != "production" {
 		*validationErrors = append(*validationErrors, errors.New("APP_ENV must be one of development, test, production"))
 	}

@@ -39,7 +39,7 @@ http.interceptors.response.use(
       failure?.code || (error.response ? 'HTTP_ERROR' : 'NETWORK_ERROR'),
       error.response?.status,
       failure?.request_id || error.response?.headers['x-request-id'],
-      failure?.details,
+      failure?.details ?? failure?.data,
     )
     if (error.response?.status === 401 && authSession.getToken()) {
       authSession.clear()
@@ -69,6 +69,8 @@ const errorMessages: Record<string, string> = {
   INVALID_CREDENTIALS: '用户名、邮箱或密码不正确',
   USERNAME_ALREADY_EXISTS: '该用户名已被使用',
   EMAIL_ALREADY_EXISTS: '该邮箱已被使用',
+  EMAIL_CODE_INVALID: '验证码错误、已过期或尝试次数过多，请重新获取',
+  EMAIL_CODE_RATE_LIMITED: '验证码请求过于频繁，请稍后再试',
   UNAUTHORIZED: '请先登录',
   TOKEN_EXPIRED: '登录已过期，请重新登录',
   USER_DISABLED: '账号已被停用',

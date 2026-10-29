@@ -20,9 +20,10 @@ func TestRegisterCreatesActiveUserWithHashedPasswordAndNormalizedEmail(t *testin
 	auth := newTestAuth(t, users)
 
 	user, err := auth.Register(context.Background(), dto.RegisterRequest{
-		Username: "reader_1",
-		Email:    " Reader@Example.COM ",
-		Password: "correct-horse",
+		EmailCode: "123456",
+		Username:  "reader_1",
+		Email:     " Reader@Example.COM ",
+		Password:  "correct-horse",
 	})
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
@@ -47,9 +48,10 @@ func TestRegisterRejectsDuplicateUsername(t *testing.T) {
 	auth := newTestAuth(t, users)
 
 	_, err := auth.Register(context.Background(), dto.RegisterRequest{
-		Username: "reader",
-		Email:    "second@example.com",
-		Password: "password-two",
+		EmailCode: "123456",
+		Username:  "reader",
+		Email:     "second@example.com",
+		Password:  "password-two",
 	})
 	if !errors.Is(err, ErrUsernameAlreadyExists) {
 		t.Fatalf("Register() error = %v, want ErrUsernameAlreadyExists", err)
@@ -62,9 +64,10 @@ func TestRegisterRejectsDuplicateEmail(t *testing.T) {
 	auth := newTestAuth(t, users)
 
 	_, err := auth.Register(context.Background(), dto.RegisterRequest{
-		Username: "reader_two",
-		Email:    "READER@EXAMPLE.COM",
-		Password: "password-two",
+		EmailCode: "123456",
+		Username:  "reader_two",
+		Email:     "READER@EXAMPLE.COM",
+		Password:  "password-two",
 	})
 	if !errors.Is(err, ErrEmailAlreadyExists) {
 		t.Fatalf("Register() error = %v, want ErrEmailAlreadyExists", err)
@@ -77,9 +80,10 @@ func TestRegisterMapsUniqueConflictFromCreate(t *testing.T) {
 	auth := newTestAuth(t, users)
 
 	_, err := auth.Register(context.Background(), dto.RegisterRequest{
-		Username: "racing_user",
-		Email:    "race@example.com",
-		Password: "password-one",
+		EmailCode: "123456",
+		Username:  "racing_user",
+		Email:     "race@example.com",
+		Password:  "password-one",
 	})
 	if !errors.Is(err, ErrUsernameAlreadyExists) {
 		t.Fatalf("Register() error = %v, want create-time unique conflict mapping", err)
@@ -89,9 +93,9 @@ func TestRegisterMapsUniqueConflictFromCreate(t *testing.T) {
 func TestRegisterValidatesUsernameEmailAndPassword(t *testing.T) {
 	auth := newTestAuth(t, newFakeUserRepository())
 	tests := []dto.RegisterRequest{
-		{Username: "bad name", Email: "reader@example.com", Password: "password-one"},
-		{Username: "reader", Email: "not-an-email", Password: "password-one"},
-		{Username: "reader", Email: "reader@example.com", Password: "short"},
+		{EmailCode: "123456", Username: "bad name", Email: "reader@example.com", Password: "password-one"},
+		{EmailCode: "123456", Username: "reader", Email: "not-an-email", Password: "password-one"},
+		{EmailCode: "123456", Username: "reader", Email: "reader@example.com", Password: "short"},
 	}
 	for _, request := range tests {
 		if _, err := auth.Register(context.Background(), request); !errors.Is(err, ErrValidation) {
@@ -259,6 +263,7 @@ func newTestAuth(t *testing.T, users *fakeUserRepository) *Auth {
 		users,
 		NewJWTManager("test-secret-with-enough-entropy", "bookloop-test", 15*time.Minute),
 		bcrypt.MinCost,
+		testRegistration(&fakeRegistrationCodes{accept: true}, &fakeRegistrationMailer{}),
 	)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)

@@ -128,7 +128,13 @@ services:
     build: *backend-build
     restart: unless-stopped
     init: true
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -138,6 +144,8 @@ services:
       - book_uploads:/app/uploads
     networks:
       - internal
+      # SMTP needs outbound Internet access; backend still publishes no port.
+      - edge
     read_only: true
     tmpfs:
       - /tmp

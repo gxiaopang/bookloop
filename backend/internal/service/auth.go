@@ -38,6 +38,7 @@ type Auth struct {
 	tokens            *JWTManager
 	bcryptCost        int
 	dummyPasswordHash []byte
+	registration      *Registration
 }
 
 type LoginResult struct {
@@ -46,7 +47,7 @@ type LoginResult struct {
 	ExpiresIn   int64
 }
 
-func NewAuth(users userRepository, tokens *JWTManager, bcryptCost int) (*Auth, error) {
+func NewAuth(users userRepository, tokens *JWTManager, bcryptCost int, registration *Registration) (*Auth, error) {
 	dummyPasswordHash, err := bcrypt.GenerateFromPassword([]byte("bookloop-invalid-login"), bcryptCost)
 	if err != nil {
 		return nil, fmt.Errorf("create dummy password hash: %w", err)
@@ -56,13 +57,14 @@ func NewAuth(users userRepository, tokens *JWTManager, bcryptCost int) (*Auth, e
 		tokens:            tokens,
 		bcryptCost:        bcryptCost,
 		dummyPasswordHash: dummyPasswordHash,
+		registration:      registration,
 	}, nil
 }
 
 func (s *Auth) Register(ctx context.Context, request dto.RegisterRequest) (*model.User, error) {
 	username := strings.TrimSpace(request.Username)
 	email := strings.ToLower(strings.TrimSpace(request.Email))
-	if !validUsername(username) || !validEmail(email) || !validPassword(request.Password) {
+	if !validUsername(username) || !validEmail(email) || !validPassword(request.Password) || !validRegistrationCode(request.EmailCode) {
 		return nil, ErrValidation
 	}
 
@@ -77,6 +79,9 @@ func (s *Auth) Register(ctx context.Context, request dto.RegisterRequest) (*mode
 		return nil, err
 	}
 
+	if err := s.registration.consume(ctx, email, request.EmailCode); err != nil {
+		return nil, err
+	}
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(request.Password), s.bcryptCost)
 	if err != nil {
 		return nil, err
@@ -99,6 +104,19 @@ func (s *Auth) Register(ctx context.Context, request dto.RegisterRequest) (*mode
 		}
 	}
 	return user, nil
+}
+
+func (s *Auth) RequestRegistrationCode(ctx context.Context, request dto.EmailCodeRequest, clientIP string) error {
+	email := strings.ToLower(strings.TrimSpace(request.Email))
+	if !validEmail(email) {
+		return ErrValidation
+	}
+	if _, err := s.users.FindByEmail(ctx, email); err == nil {
+		return ErrEmailAlreadyExists
+	} else if !errors.Is(err, repository.ErrUserNotFound) {
+		return err
+	}
+	return s.registration.send(ctx, email, clientIP)
 }
 
 func (s *Auth) Login(ctx context.Context, request dto.LoginRequest) (*LoginResult, error) {
