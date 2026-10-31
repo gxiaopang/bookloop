@@ -30,6 +30,7 @@ const (
 var pricePattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,7})(\.[0-9]{1,2})?$`)
 
 type bookRepository interface {
+	FindSellerUsername(context.Context, uint64) (string, error)
 	Create(context.Context, *model.Book) error
 	FindByID(context.Context, uint64) (*model.Book, error)
 	FindPublicByID(context.Context, uint64) (*model.Book, []model.BookImage, error)
@@ -157,6 +158,10 @@ func (s *Book) GetPublic(ctx context.Context, bookID uint64) (*dto.BookResponse,
 		return nil, mapBookRepositoryError(err)
 	}
 	response := bookResponse(book, images)
+	response.SellerUsername, err = s.books.FindSellerUsername(ctx, book.SellerID)
+	if err != nil {
+		return nil, err
+	}
 	return &response, nil
 }
 
@@ -601,7 +606,7 @@ func normalizeBookListQuery(query dto.BookListQuery) (dto.BookListQuery, error) 
 	if query.Sort == "" {
 		query.Sort = "newest"
 	}
-	if query.Sort != "newest" && query.Sort != "price_asc" && query.Sort != "price_desc" {
+	if query.Sort != "newest" && query.Sort != "price_asc" && query.Sort != "price_desc" && query.Sort != "favorites_desc" {
 		return dto.BookListQuery{}, ErrValidation
 	}
 	page, pageSize, err := normalizePagination(query.Page, query.PageSize)

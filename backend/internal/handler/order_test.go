@@ -101,6 +101,60 @@ func TestOrderHandlerRequestInProgressIncludesRetryAfter(t *testing.T) {
 	}
 }
 
+func TestOrderHandlerTwoPartyConfirmationUsesAuthenticatedIdentity(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := &handlerOrderRepository{
+		book:   &model.Book{ID: 7, SellerID: 10, Title: "Book", Price: "12.00", Status: model.BookStatusAvailable},
+		seller: &model.User{ID: 10, Status: model.UserStatusActive},
+		now:    time.Now().UTC(),
+	}
+	logger := config.NewLogger(io.Discard, "debug")
+	orders := service.NewOrder(store, nil, 15*time.Minute, service.OrderIdempotencyOptions{}, logger)
+	created, err := orders.Create(context.Background(), 20, 7, "handler-handover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewOrder(orders, logger)
+	for _, test := range []struct {
+		operation  string
+		userID     uint64
+		status     int
+		orderState string
+	}{
+		{"complete", 20, http.StatusConflict, "pending_handover"},
+		{"deliver", 20, http.StatusForbidden, "pending_handover"},
+		{"deliver", 99, http.StatusForbidden, "pending_handover"},
+		{"deliver", 10, http.StatusOK, "pending_receipt"},
+		{"complete", 10, http.StatusForbidden, "pending_receipt"},
+		{"cancel", 20, http.StatusConflict, "pending_receipt"},
+		{"cancel", 10, http.StatusConflict, "pending_receipt"},
+		{"complete", 20, http.StatusOK, "completed"},
+	} {
+		response := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(response)
+		// Client-supplied participant IDs must not grant permissions.
+		c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/orders/"+created.Order.OrderNo+"/"+test.operation,
+			strings.NewReader(`{"seller_id":10,"buyer_id":20}`))
+		c.Params = gin.Params{{Key: "order_no", Value: created.Order.OrderNo}}
+		c.Set("current_user", &model.User{ID: test.userID})
+		switch test.operation {
+		case "deliver":
+			handler.Deliver(c)
+		case "complete":
+			handler.Complete(c)
+		case "cancel":
+			handler.Cancel(c)
+		}
+		if response.Code != test.status || string(store.order.Status) != test.orderState {
+			t.Fatalf("%s(user=%d) = %d/%s, state=%s; want %d/%s", test.operation, test.userID,
+				response.Code, response.Body.String(), store.order.Status, test.status, test.orderState)
+		}
+		if test.status == http.StatusOK && !strings.Contains(response.Body.String(), `"handed_over_at":"`) {
+			t.Fatalf("missing handover timestamp: %s", response.Body.String())
+		}
+	}
+}
+
 type handlerOrderRepository struct {
 	book   *model.Book
 	seller *model.User
@@ -191,4 +245,12 @@ func (r *handlerOrderRepository) ListAll(context.Context, int, int) ([]model.Ord
 
 func (r *handlerOrderRepository) FindExpiredPendingOrderNos(context.Context, int) ([]string, error) {
 	return nil, nil
+}
+
+func (r *handlerOrderRepository) FindUsernames(_ context.Context, ids []uint64) (map[uint64]string, error) {
+	names := make(map[uint64]string)
+	if r.seller != nil {
+		names[r.seller.ID] = r.seller.Username
+	}
+	return names, nil
 }

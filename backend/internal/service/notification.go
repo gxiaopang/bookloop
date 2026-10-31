@@ -110,11 +110,21 @@ func notificationCopy(eventType string, payload domainevent.OrderPayload) (strin
 		if payload.Status != string(model.OrderStatusPendingHandover) {
 			return "", "", "", false
 		}
-		return "订单已创建", "你已成功下单《" + book + "》，请通过卖家微信二维码联系并在预约截止时间前完成线下交付。",
-			"你的《" + book + "》收到一笔新订单，请与买家联系并安排线下交付。", true
+		return "订单已创建", "你已成功下单《" + book + "》，请联系卖家在预约截止时间前交付，卖家确认交付后再确认收书。",
+			"你的《" + book + "》收到一笔新订单，请在预约截止时间前交书并确认交付，等待买家确认收书。", true
+	case domainevent.OrderDelivered:
+		if payload.Status != string(model.OrderStatusPendingReceipt) {
+			return "", "", "", false
+		}
+		return "卖家已确认交付", "《" + book + "》的卖家已确认交付，请在实际收到图书后确认收书。",
+			"你已确认交付《" + book + "》，等待买家确认收书后交易完成。", true
 	case domainevent.OrderCancelled:
 		if payload.Status != string(model.OrderStatusCancelled) {
 			return "", "", "", false
+		}
+		if payload.CancelReason != nil && *payload.CancelReason == "cancelled by seller" {
+			return "订单已取消", "《" + book + "》的订单已被卖家取消，商品状态已更新。",
+				"你已取消《" + book + "》的订单。", true
 		}
 		return "订单已取消", "你已取消《" + book + "》的订单。",
 			"《" + book + "》的订单已被买家取消，商品状态已更新。", true

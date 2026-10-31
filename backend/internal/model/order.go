@@ -6,6 +6,7 @@ type OrderStatus string
 
 const (
 	OrderStatusPendingHandover OrderStatus = "pending_handover"
+	OrderStatusPendingReceipt  OrderStatus = "pending_receipt"
 	OrderStatusCompleted       OrderStatus = "completed"
 	OrderStatusCancelled       OrderStatus = "cancelled"
 	OrderStatusExpired         OrderStatus = "expired"
@@ -23,6 +24,7 @@ type Order struct {
 	IdempotencyKey     string      `gorm:"column:idempotency_key;size:64;not null"`
 	RequestFingerprint string      `gorm:"column:request_fingerprint;size:64;not null"`
 	ExpiresAt          time.Time   `gorm:"column:expires_at;not null"`
+	HandedOverAt       *time.Time  `gorm:"column:handed_over_at"`
 	CompletedAt        *time.Time  `gorm:"column:completed_at"`
 	CancelledAt        *time.Time  `gorm:"column:cancelled_at"`
 	CancelReason       *string     `gorm:"column:cancel_reason;size:255"`

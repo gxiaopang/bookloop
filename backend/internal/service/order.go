@@ -26,6 +26,7 @@ const (
 )
 
 type orderRepository interface {
+	FindUsernames(context.Context, []uint64) (map[uint64]string, error)
 	WithinTransaction(context.Context, func(repository.OrderStore) error) error
 	FindByBuyerAndIdempotencyKey(context.Context, uint64, string) (*model.Order, error)
 	FindByOrderNo(context.Context, string) (*model.Order, error)
@@ -311,7 +312,11 @@ func (s *Order) createWithMySQL(
 			if !replayed {
 				s.logTransition(created, buyerID, "", string(model.OrderStatusPendingHandover))
 			}
-			return &CreateOrderResult{Order: orderResponse(created), Replayed: replayed}, nil
+			response, responseErr := s.orderResponse(ctx, created)
+			if responseErr != nil {
+				return nil, responseErr
+			}
+			return &CreateOrderResult{Order: response, Replayed: replayed}, nil
 		}
 		if errors.Is(err, repository.ErrOrderNumberDuplicate) {
 			continue
@@ -324,7 +329,11 @@ func (s *Order) createWithMySQL(
 			if existing.RequestFingerprint != fingerprint {
 				return nil, ErrIdempotencyKeyReused
 			}
-			return &CreateOrderResult{Order: orderResponse(existing), Replayed: true}, nil
+			response, responseErr := s.orderResponse(ctx, existing)
+			if responseErr != nil {
+				return nil, responseErr
+			}
+			return &CreateOrderResult{Order: response, Replayed: true}, nil
 		}
 		if errors.Is(err, repository.ErrOrderActiveBookDuplicate) {
 			return nil, ErrBookNotAvailable
@@ -357,7 +366,11 @@ func (s *Order) replayCachedOrder(
 		)
 		return nil, false, nil
 	}
-	return &CreateOrderResult{Order: orderResponse(order), Replayed: true}, true, nil
+	response, err := s.orderResponse(ctx, order)
+	if err != nil {
+		return nil, false, err
+	}
+	return &CreateOrderResult{Order: response, Replayed: true}, true, nil
 }
 
 func (s *Order) replayCommittedOrder(
@@ -375,7 +388,11 @@ func (s *Order) replayCommittedOrder(
 	if order.RequestFingerprint != fingerprint {
 		return nil, false, ErrIdempotencyKeyReused
 	}
-	return &CreateOrderResult{Order: orderResponse(order), Replayed: true}, true, nil
+	response, err := s.orderResponse(ctx, order)
+	if err != nil {
+		return nil, false, err
+	}
+	return &CreateOrderResult{Order: response, Replayed: true}, true, nil
 }
 
 func (s *Order) completeIdempotencyClaim(
@@ -468,7 +485,7 @@ func (s *Order) List(
 			return nil, err
 		}
 	}
-	return orderListResponse(orders, page, pageSize, total), nil
+	return s.orderListResponse(ctx, orders, page, pageSize, total)
 }
 
 func (s *Order) ListAll(ctx context.Context, administrator *model.User, page, pageSize int) (*dto.OrderListResponse, error) {
@@ -493,7 +510,7 @@ func (s *Order) ListAll(ctx context.Context, administrator *model.User, page, pa
 			return nil, err
 		}
 	}
-	return orderListResponse(orders, page, pageSize, total), nil
+	return s.orderListResponse(ctx, orders, page, pageSize, total)
 }
 
 func (s *Order) Get(ctx context.Context, actor *model.User, orderNo string) (*dto.OrderResponse, error) {
@@ -513,28 +530,36 @@ func (s *Order) Get(ctx context.Context, actor *model.User, orderNo string) (*dt
 			return nil, err
 		}
 	}
-	response := orderResponse(order)
+	response, err := s.orderResponse(ctx, order)
+	if err != nil {
+		return nil, err
+	}
 	return &response, nil
 }
 
-func (s *Order) Cancel(ctx context.Context, buyerID uint64, orderNo string) (*dto.OrderResponse, error) {
-	return s.transition(ctx, buyerID, orderNo, orderActionCancel)
+func (s *Order) Cancel(ctx context.Context, actorID uint64, orderNo string) (*dto.OrderResponse, error) {
+	return s.transition(ctx, actorID, orderNo, orderActionCancel)
 }
 
 func (s *Order) Complete(ctx context.Context, buyerID uint64, orderNo string) (*dto.OrderResponse, error) {
 	return s.transition(ctx, buyerID, orderNo, orderActionComplete)
 }
 
+func (s *Order) Deliver(ctx context.Context, sellerID uint64, orderNo string) (*dto.OrderResponse, error) {
+	return s.transition(ctx, sellerID, orderNo, orderActionDeliver)
+}
+
 type orderAction string
 
 const (
 	orderActionCancel   orderAction = "cancel"
+	orderActionDeliver  orderAction = "deliver"
 	orderActionComplete orderAction = "complete"
 )
 
 func (s *Order) transition(
 	ctx context.Context,
-	buyerID uint64,
+	actorID uint64,
 	orderNo string,
 	action orderAction,
 ) (*dto.OrderResponse, error) {
@@ -542,7 +567,7 @@ func (s *Order) transition(
 	if err != nil {
 		return nil, mapOrderRepositoryError(err)
 	}
-	if snapshot.BuyerID != buyerID {
+	if !canTransitionOrder(snapshot, actorID, action) {
 		return nil, ErrOrderAccessDenied
 	}
 
@@ -562,7 +587,7 @@ func (s *Order) transition(
 		if err != nil {
 			return mapOrderRepositoryError(err)
 		}
-		if order.BuyerID != buyerID {
+		if !canTransitionOrder(order, actorID, action) {
 			return ErrOrderAccessDenied
 		}
 		fromStatus = order.Status
@@ -589,6 +614,9 @@ func (s *Order) transition(
 				return nil
 			}
 			reason := "cancelled by buyer"
+			if actorID == order.SellerID {
+				reason = "cancelled by seller"
+			}
 			if err := store.UpdateOrderStatus(ctx, order.ID, model.OrderStatusPendingHandover, model.OrderStatusCancelled, map[string]any{
 				"cancelled_at":  now,
 				"cancel_reason": reason,
@@ -607,8 +635,8 @@ func (s *Order) transition(
 			}
 			changed = order
 
-		case orderActionComplete:
-			if order.Status == model.OrderStatusCompleted {
+		case orderActionDeliver:
+			if order.Status == model.OrderStatusPendingReceipt || order.Status == model.OrderStatusCompleted {
 				changed = order
 				return nil
 			}
@@ -623,6 +651,29 @@ func (s *Order) transition(
 				postCommitErr = ErrOrderStateConflict
 				return nil
 			}
+			if err := store.UpdateOrderStatus(ctx, order.ID, model.OrderStatusPendingHandover, model.OrderStatusPendingReceipt, map[string]any{
+				"handed_over_at": now,
+			}); err != nil {
+				return err
+			}
+			order.Status = model.OrderStatusPendingReceipt
+			order.HandedOverAt = &now
+			order.UpdatedAt = now
+			if err := enqueueOrderEvent(ctx, store, order, domainevent.OrderDelivered, now); err != nil {
+				return err
+			}
+			changed = order
+
+		case orderActionComplete:
+			if order.Status == model.OrderStatusCompleted {
+				changed = order
+				return nil
+			}
+			if order.Status != model.OrderStatusPendingReceipt || book.Status != model.BookStatusReserved {
+				return ErrOrderStateConflict
+			}
+			// Reservation expiry applies only before handover. Releasing a book
+			// already handed to the buyer would allow another purchase.
 			if err := store.UpdateBookStatus(ctx, book.ID, model.BookStatusReserved, model.BookStatusSold); err != nil {
 				return err
 			}
@@ -646,15 +697,31 @@ func (s *Order) transition(
 	}
 	if postCommitErr != nil {
 		if changed != nil && changed.Status != fromStatus {
-			s.logTransition(changed, buyerID, string(fromStatus), string(changed.Status))
+			s.logTransition(changed, actorID, string(fromStatus), string(changed.Status))
 		}
 		return nil, postCommitErr
 	}
 	if changed.Status != fromStatus {
-		s.logTransition(changed, buyerID, string(fromStatus), string(changed.Status))
+		s.logTransition(changed, actorID, string(fromStatus), string(changed.Status))
 	}
-	response := orderResponse(changed)
+	response, err := s.orderResponse(ctx, changed)
+	if err != nil {
+		return nil, err
+	}
 	return &response, nil
+}
+
+func canTransitionOrder(order *model.Order, actorID uint64, action orderAction) bool {
+	switch action {
+	case orderActionDeliver:
+		return actorID == order.SellerID
+	case orderActionCancel:
+		return actorID == order.BuyerID || actorID == order.SellerID
+	case orderActionComplete:
+		return actorID == order.BuyerID
+	default:
+		return false
+	}
 }
 
 func (s *Order) ExpireOverdue(ctx context.Context) (int, error) {
@@ -769,13 +836,14 @@ func enqueueOrderEvent(
 	now time.Time,
 ) error {
 	payload, err := json.Marshal(domainevent.OrderPayload{
-		OrderNo:   order.OrderNo,
-		BookID:    order.BookID,
-		BuyerID:   order.BuyerID,
-		SellerID:  order.SellerID,
-		BookTitle: order.BookTitle,
-		Status:    string(order.Status),
-		ExpiresAt: order.ExpiresAt,
+		OrderNo:      order.OrderNo,
+		BookID:       order.BookID,
+		BuyerID:      order.BuyerID,
+		SellerID:     order.SellerID,
+		BookTitle:    order.BookTitle,
+		Status:       string(order.Status),
+		ExpiresAt:    order.ExpiresAt,
+		CancelReason: order.CancelReason,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal order event: %w", err)
@@ -838,28 +906,47 @@ func mapOrderRepositoryError(err error) error {
 	}
 }
 
-func orderResponse(order *model.Order) dto.OrderResponse {
+func (s *Order) orderResponse(ctx context.Context, order *model.Order) (dto.OrderResponse, error) {
+	names, err := s.orders.FindUsernames(ctx, []uint64{order.BuyerID, order.SellerID})
+	if err != nil {
+		return dto.OrderResponse{}, err
+	}
+	return orderResponse(order, names), nil
+}
+
+func orderResponse(order *model.Order, names map[uint64]string) dto.OrderResponse {
 	return dto.OrderResponse{
-		OrderNo:      order.OrderNo,
-		BookID:       order.BookID,
-		BuyerID:      order.BuyerID,
-		SellerID:     order.SellerID,
-		BookTitle:    order.BookTitle,
-		BookPrice:    order.BookPrice,
-		Status:       string(order.Status),
-		ExpiresAt:    order.ExpiresAt,
-		CompletedAt:  order.CompletedAt,
-		CancelledAt:  order.CancelledAt,
-		CancelReason: order.CancelReason,
-		CreatedAt:    order.CreatedAt,
-		UpdatedAt:    order.UpdatedAt,
+		BuyerUsername:  names[order.BuyerID],
+		SellerUsername: names[order.SellerID],
+		OrderNo:        order.OrderNo,
+		BookID:         order.BookID,
+		BuyerID:        order.BuyerID,
+		SellerID:       order.SellerID,
+		BookTitle:      order.BookTitle,
+		BookPrice:      order.BookPrice,
+		Status:         string(order.Status),
+		ExpiresAt:      order.ExpiresAt,
+		HandedOverAt:   order.HandedOverAt,
+		CompletedAt:    order.CompletedAt,
+		CancelledAt:    order.CancelledAt,
+		CancelReason:   order.CancelReason,
+		CreatedAt:      order.CreatedAt,
+		UpdatedAt:      order.UpdatedAt,
 	}
 }
 
-func orderListResponse(orders []model.Order, page, pageSize int, total int64) *dto.OrderListResponse {
+func (s *Order) orderListResponse(ctx context.Context, orders []model.Order, page, pageSize int, total int64) (*dto.OrderListResponse, error) {
+	ids := make([]uint64, 0, len(orders)*2)
+	for _, order := range orders {
+		ids = append(ids, order.BuyerID, order.SellerID)
+	}
+	names, err := s.orders.FindUsernames(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]dto.OrderResponse, 0, len(orders))
 	for index := range orders {
-		items = append(items, orderResponse(&orders[index]))
+		items = append(items, orderResponse(&orders[index], names))
 	}
 	totalPages := 0
 	if total > 0 {
@@ -873,7 +960,7 @@ func orderListResponse(orders []model.Order, page, pageSize int, total int64) *d
 			Total:      total,
 			TotalPages: totalPages,
 		},
-	}
+	}, nil
 }
 
 func (s *Order) logTransition(order *model.Order, actorID uint64, from, to string) {

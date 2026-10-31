@@ -100,6 +100,10 @@ func (h *Order) Complete(c *gin.Context) {
 	h.action(c, h.service.Complete)
 }
 
+func (h *Order) Deliver(c *gin.Context) {
+	h.action(c, h.service.Deliver)
+}
+
 func (h *Order) action(
 	c *gin.Context,
 	operation func(context.Context, uint64, string) (*dto.OrderResponse, error),

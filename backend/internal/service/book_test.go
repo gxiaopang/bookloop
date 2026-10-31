@@ -343,6 +343,17 @@ func TestBookListQueryValidationAndNormalization(t *testing.T) {
 	if _, err := service.ListPublic(context.Background(), dto.BookListQuery{Sort: "unsupported"}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("ListPublic(unsupported sort) error = %v, want ErrValidation", err)
 	}
+	for _, sort := range []string{"newest", "price_asc", "price_desc", "favorites_desc"} {
+		query := dto.BookListQuery{Keyword: " Go ", Condition: "good", Sort: sort, Page: 2, PageSize: 10}
+		response, err := service.ListPublic(context.Background(), query)
+		if err != nil {
+			t.Fatalf("ListPublic(%s) error = %v", sort, err)
+		}
+		query.Keyword = "Go"
+		if repository.lastListQuery != query || response.Pagination.Page != 2 || response.Pagination.PageSize != 10 {
+			t.Fatalf("ListPublic(%s) query/pagination = %+v/%+v", sort, repository.lastListQuery, response.Pagination)
+		}
+	}
 }
 
 func newTestBookService(repository *fakeBookRepository) *Book {
@@ -545,4 +556,17 @@ func (r *fakeBookRepository) UpdateWechatQRCode(_ context.Context, bookID uint64
 	}
 	r.books[bookID].WechatQRCodeURL = &imageURL
 	return nil
+}
+
+func (r *fakeBookRepository) FindSellerUsername(context.Context, uint64) (string, error) {
+	return "test_seller", nil
+}
+
+func TestPublicBookDisplaysSellerUsername(t *testing.T) {
+	repo := newFakeBookRepository()
+	repo.books[1] = &model.Book{ID: 1, SellerID: 42, Title: "One", Price: "10.00", Status: model.BookStatusAvailable}
+	result, err := newTestBookService(repo).GetPublic(context.Background(), 1)
+	if err != nil || result.SellerUsername != "test_seller" || result.SellerID != 42 {
+		t.Fatalf("public book = %+v/%v, want seller display name and unchanged ownership ID", result, err)
+	}
 }

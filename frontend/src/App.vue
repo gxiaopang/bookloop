@@ -42,7 +42,10 @@ onBeforeUnmount(() => window.removeEventListener('bookloop:unauthorized', handle
       </nav>
       <div class="account-actions">
         <template v-if="auth.isAuthenticated">
-          <span class="welcome">你好，{{ auth.user?.username }}</span>
+          <div class="user-pill">
+            <span class="user-avatar" aria-hidden="true">{{ auth.user?.username?.slice(0, 1).toUpperCase() || 'U' }}</span>
+            <span class="welcome">{{ auth.user?.username }}</span>
+          </div>
           <el-button text @click="logout">退出</el-button>
         </template>
         <RouterLink v-else :to="{ name: 'auth', query: { redirect: route.fullPath } }">
@@ -60,8 +63,17 @@ onBeforeUnmount(() => window.removeEventListener('bookloop:unauthorized', handle
     </main>
 
     <footer class="site-footer">
-      <span>BookLoop</span>
-      <span>让闲置好书，遇见下一位读者。</span>
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <strong>BookLoop</strong>
+          <span>让闲置好书，遇见下一位读者。</span>
+        </div>
+        <div class="footer-meta">
+          <span>实物多图展示</span>
+          <span>·</span>
+          <span>微信扫码联系</span>
+        </div>
+      </div>
     </footer>
   </div>
 </template>

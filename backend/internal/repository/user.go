@@ -25,6 +25,25 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
+// Read only public display names, in one query for an entire result page.
+func findUsernames(ctx context.Context, db *gorm.DB, ids []uint64) (map[uint64]string, error) {
+	names := make(map[uint64]string)
+	if len(ids) == 0 {
+		return names, nil
+	}
+	var users []struct {
+		ID       uint64
+		Username string
+	}
+	if err := db.WithContext(ctx).Model(&model.User{}).Select("id, username").Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	for _, user := range users {
+		names[user.ID] = user.Username
+	}
+	return names, nil
+}
+
 func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
 	err := r.db.WithContext(ctx).Create(user).Error
 	if err == nil {

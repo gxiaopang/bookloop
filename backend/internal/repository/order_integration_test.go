@@ -160,6 +160,23 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 
 	winner := &persisted[0]
 	if err := orders.WithinTransaction(context.Background(), func(store OrderStore) error {
+		if _, err := store.FindBookByIDForUpdate(context.Background(), book.ID); err != nil {
+			return err
+		}
+		lockedOrder, err := store.FindByOrderNoForUpdate(context.Background(), winner.OrderNo)
+		if err != nil {
+			return err
+		}
+		now, err := store.CurrentTime(context.Background())
+		if err != nil {
+			return err
+		}
+		return store.UpdateOrderStatus(context.Background(), lockedOrder.ID,
+			model.OrderStatusPendingHandover, model.OrderStatusPendingReceipt, map[string]any{"handed_over_at": now})
+	}); err != nil {
+		t.Fatalf("seller delivery transaction: %v", err)
+	}
+	if err := orders.WithinTransaction(context.Background(), func(store OrderStore) error {
 		lockedBook, err := store.FindBookByIDForUpdate(context.Background(), book.ID)
 		if err != nil {
 			return err
@@ -173,7 +190,7 @@ func TestOrderMigrationAndConcurrencyWithMySQL8(t *testing.T) {
 			return err
 		}
 		if err := store.UpdateOrderStatus(context.Background(), lockedOrder.ID,
-			model.OrderStatusPendingHandover, model.OrderStatusCompleted, map[string]any{"completed_at": now}); err != nil {
+			model.OrderStatusPendingReceipt, model.OrderStatusCompleted, map[string]any{"completed_at": now}); err != nil {
 			return err
 		}
 		return store.UpdateBookStatus(context.Background(), lockedBook.ID, model.BookStatusReserved, model.BookStatusSold)
@@ -418,6 +435,9 @@ func applyOrderTestSchema(t *testing.T, db *gorm.DB) {
 	if err := execIntegrationMigration(db, readMigration(t, "../../migrations/000007_use_offline_orders.up.sql")); err != nil {
 		t.Fatalf("apply offline orders migration: %v", err)
 	}
+	if err := execIntegrationMigration(db, readMigration(t, "../../migrations/000008_require_buyer_receipt.up.sql")); err != nil {
+		t.Fatalf("apply buyer receipt migration: %v", err)
+	}
 }
 
 func assertOrderSchema(t *testing.T, db *gorm.DB) {
@@ -427,15 +447,15 @@ func assertOrderSchema(t *testing.T, db *gorm.DB) {
         WHERE table_schema = DATABASE() AND table_name = 'orders'`).Scan(&columnCount).Error; err != nil {
 		t.Fatalf("count orders columns: %v", err)
 	}
-	if columnCount != 17 {
-		t.Fatalf("orders column count = %d, want 17", columnCount)
+	if columnCount != 18 {
+		t.Fatalf("orders column count = %d, want 18", columnCount)
 	}
 	var tableName, createSQL string
 	if err := db.Raw("SHOW CREATE TABLE orders").Row().Scan(&tableName, &createSQL); err != nil {
 		t.Fatalf("SHOW CREATE TABLE orders: %v", err)
 	}
 	for _, fragment := range []string{
-		"active_book_id", "GENERATED ALWAYS AS", "ux_orders_order_no", "ux_orders_buyer_idempotency",
+		"handed_over_at", "pending_receipt", "active_book_id", "GENERATED ALWAYS AS", "ux_orders_order_no", "ux_orders_buyer_idempotency",
 		"ux_orders_active_book", "chk_orders_distinct_participants", "chk_orders_status",
 		"ix_orders_status_expires", "fk_orders_book", "fk_orders_buyer", "fk_orders_seller",
 	} {

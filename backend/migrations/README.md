@@ -38,3 +38,15 @@ automatically relist books. Apply this migration before starting the updated bac
 unique active-book constraint for pending handovers and completed sales. Reset
 the authorized development environment before applying it; it deliberately
 does not convert legacy payment orders. Rollback also requires empty orders.
+
+`000008_require_buyer_receipt` adds nullable `handed_over_at`, the
+`pending_receipt` state, and extends the active-book unique constraint to cover
+it. Existing pending and completed orders are preserved; legacy completed
+orders may have no handover timestamp. Apply it before starting the updated API
+and notification worker. The worker must understand `order.delivered.v1` before
+the API can emit that event. Stop the old API during the upgrade so its direct
+completion logic cannot bypass seller confirmation.
+
+No data reset is required for an existing schema already at `000007`. Rollback
+is deliberately rejected while any `pending_receipt` orders remain. Finish them
+first; rollback drops the new handover timestamp column, so back it up if needed.

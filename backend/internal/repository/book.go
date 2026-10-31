@@ -51,6 +51,11 @@ func NewBookRepository(db *gorm.DB) *BookRepository {
 	return &BookRepository{db: db}
 }
 
+func (r *BookRepository) FindSellerUsername(ctx context.Context, sellerID uint64) (string, error) {
+	names, err := findUsernames(ctx, r.db, []uint64{sellerID})
+	return names[sellerID], err
+}
+
 func (r *BookRepository) WithinTransaction(ctx context.Context, operation func(BookStore) error) error {
 	return r.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		return operation(&BookRepository{db: transaction})
@@ -125,6 +130,11 @@ func (r *BookRepository) ListPublic(ctx context.Context, query dto.BookListQuery
 		order = "b.price ASC, b.id ASC"
 	case "price_desc":
 		order = "b.price DESC, b.id DESC"
+	case "favorites_desc":
+		favoriteCounts := r.db.WithContext(ctx).Table("favorites").
+			Select("book_id, COUNT(*) AS favorite_count").Group("book_id")
+		database = database.Joins("LEFT JOIN (?) AS fc ON fc.book_id = b.id", favoriteCounts)
+		order = "COALESCE(fc.favorite_count, 0) DESC, b.id DESC"
 	}
 	var records []BookListRecord
 	err := database.

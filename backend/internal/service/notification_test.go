@@ -65,6 +65,55 @@ func TestNotificationListAndReadAreUserScoped(t *testing.T) {
 	}
 }
 
+func TestNotificationDeliveryEventNotifiesBothParticipantsOnce(t *testing.T) {
+	store := newFakeNotificationRepository()
+	svc := NewNotification(store)
+	payload, err := json.Marshal(domainevent.OrderPayload{
+		OrderNo: "01HF7YAT00ABCDEFGHJKMNPQRS", BuyerID: 20, SellerID: 10,
+		BookID: 7, BookTitle: "Database Systems", Status: "pending_receipt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := domainevent.Envelope{ID: 9, AggregateType: "order", AggregateID: "01HF7YAT00ABCDEFGHJKMNPQRS",
+		Type: domainevent.OrderDelivered, Payload: payload, OccurredAt: time.Now().UTC()}
+	for attempt := 0; attempt < 2; attempt++ {
+		created, err := svc.Process(context.Background(), envelope)
+		if err != nil || created != (attempt == 0) {
+			t.Fatalf("Process(attempt=%d) = %v/%v", attempt, created, err)
+		}
+	}
+	if len(store.items) != 2 || store.items[0].UserID != 20 || store.items[1].UserID != 10 ||
+		store.items[0].Title != "卖家已确认交付" || store.items[1].Title != "卖家已确认交付" {
+		t.Fatalf("delivery notifications = %+v", store.items)
+	}
+	if _, _, _, ok := notificationCopy(domainevent.OrderDelivered, domainevent.OrderPayload{Status: "completed"}); ok {
+		t.Fatal("delivery notification accepted an incompatible order status")
+	}
+}
+
+func TestCancellationNotificationIdentifiesTheCancellingParticipant(t *testing.T) {
+	for _, reason := range []string{"", "cancelled by buyer", "cancelled by seller"} {
+		t.Run(reason, func(t *testing.T) {
+			payload := domainevent.OrderPayload{Status: "cancelled", BookTitle: "One"}
+			if reason != "" {
+				payload.CancelReason = &reason
+			}
+			title, buyer, seller, ok := notificationCopy(domainevent.OrderCancelled, payload)
+			if !ok || title != "订单已取消" {
+				t.Fatal("cancel event rejected")
+			}
+			if reason == "cancelled by seller" {
+				if buyer != "《One》的订单已被卖家取消，商品状态已更新。" || seller != "你已取消《One》的订单。" {
+					t.Fatalf("seller cancellation copy = %s / %s", buyer, seller)
+				}
+			} else if buyer != "你已取消《One》的订单。" || seller != "《One》的订单已被买家取消，商品状态已更新。" {
+				t.Fatalf("buyer/legacy cancellation copy = %s / %s", buyer, seller)
+			}
+		})
+	}
+}
+
 type fakeNotificationRepository struct {
 	processed map[uint64]bool
 	items     []model.Notification

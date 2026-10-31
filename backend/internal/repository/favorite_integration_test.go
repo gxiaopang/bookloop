@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/gxiaopang/bookloop/backend/internal/dto"
 	"github.com/gxiaopang/bookloop/backend/internal/model"
 )
 
@@ -145,6 +146,87 @@ func TestFavoriteMigrationAndRepositoryWithMySQL8(t *testing.T) {
 	if buyerFavoriteCount != 1 {
 		t.Fatalf("other user's favorite count = %d, want 1 after buyer removal", buyerFavoriteCount)
 	}
+
+	t.Run("public books sorted by favorites", func(t *testing.T) {
+		assertBookFavoriteSorting(t, db, books, favorites, sellerID, buyerID, otherBuyerID)
+	})
+}
+
+func assertBookFavoriteSorting(t *testing.T, db *gorm.DB, books *BookRepository, favorites *FavoriteRepository, sellerID, buyerID, otherBuyerID uint64) {
+	t.Helper()
+	ctx := context.Background()
+	popular := createIntegrationBook(t, books, sellerID, "Ranking popular", "18.00", model.BookConditionGood, model.BookStatusAvailable)
+	tiedOlder := createIntegrationBook(t, books, sellerID, "Ranking tied older", "18.00", model.BookConditionFair, model.BookStatusAvailable)
+	tiedNewer := createIntegrationBook(t, books, sellerID, "Ranking tied newer", "18.00", model.BookConditionGood, model.BookStatusAvailable)
+	zeroOlder := createIntegrationBook(t, books, sellerID, "Ranking zero older", "18.00", model.BookConditionGood, model.BookStatusAvailable)
+	zeroNewer := createIntegrationBook(t, books, sellerID, "Ranking zero newer", "18.00", model.BookConditionFair, model.BookStatusAvailable)
+
+	check := func(name string, query dto.BookListQuery, wantTotal int64, wantIDs ...uint64) {
+		t.Helper()
+		query.Sort = "favorites_desc"
+		if query.Keyword == "" {
+			query.Keyword = "Ranking"
+		}
+		if query.Page == 0 {
+			query.Page = 1
+		}
+		if query.PageSize == 0 {
+			query.PageSize = 20
+		}
+		records, total, err := books.ListPublic(ctx, query)
+		if err != nil || total != wantTotal || len(records) != len(wantIDs) {
+			t.Fatalf("%s: total/items/error = %d/%+v/%v, want total %d and IDs %v", name, total, records, err, wantTotal, wantIDs)
+		}
+		for i, wantID := range wantIDs {
+			if records[i].ID != wantID {
+				t.Fatalf("%s: item %d ID = %d, want %d (all IDs %v)", name, i, records[i].ID, wantID, wantIDs)
+			}
+		}
+	}
+	check("no favorites", dto.BookListQuery{}, 5, zeroNewer.ID, zeroOlder.ID, tiedNewer.ID, tiedOlder.ID, popular.ID)
+
+	add := func(userID, bookID uint64) {
+		t.Helper()
+		if err := favorites.Add(ctx, &model.Favorite{UserID: userID, BookID: bookID}); err != nil {
+			t.Fatalf("add favorite: %v", err)
+		}
+	}
+	thirdBuyerID := createIntegrationUser(t, db, "ranking_buyer", "ranking-buyer@example.com", model.UserStatusActive)
+	for _, userID := range []uint64{buyerID, otherBuyerID, thirdBuyerID} {
+		add(userID, popular.ID)
+	}
+	add(buyerID, tiedOlder.ID)
+	add(buyerID, tiedNewer.ID)
+	add(buyerID, tiedOlder.ID) // Duplicate favorites must not increase the ranking.
+
+	for _, status := range []model.BookStatus{model.BookStatusOffShelf, model.BookStatusBlocked, model.BookStatusSold, model.BookStatusReserved} {
+		hidden := createIntegrationBook(t, books, sellerID, "Ranking hidden "+string(status), "18.00", model.BookConditionGood, status)
+		for _, userID := range []uint64{buyerID, otherBuyerID, thirdBuyerID} {
+			add(userID, hidden.ID)
+		}
+	}
+	disabledSellerID := createIntegrationUser(t, db, "ranking_disabled", "ranking-disabled@example.com", model.UserStatusDisabled)
+	disabled := createIntegrationBook(t, books, disabledSellerID, "Ranking disabled seller", "18.00", model.BookConditionGood, model.BookStatusAvailable)
+	for _, userID := range []uint64{buyerID, otherBuyerID, thirdBuyerID} {
+		add(userID, disabled.ID)
+	}
+
+	check("counts, ties, zero counts and visibility", dto.BookListQuery{}, 5, popular.ID, tiedNewer.ID, tiedOlder.ID, zeroNewer.ID, zeroOlder.ID)
+	check("second page", dto.BookListQuery{Page: 2, PageSize: 2}, 5, tiedOlder.ID, zeroNewer.ID)
+	check("last page", dto.BookListQuery{Page: 3, PageSize: 2}, 5, zeroOlder.ID)
+	check("beyond last page", dto.BookListQuery{Page: 4, PageSize: 2}, 5)
+	check("condition filter", dto.BookListQuery{Condition: "fair"}, 2, tiedOlder.ID, zeroNewer.ID)
+	check("keyword filter", dto.BookListQuery{Keyword: "Ranking zero"}, 2, zeroNewer.ID, zeroOlder.ID)
+	check("no matches", dto.BookListQuery{Keyword: "Ranking missing"}, 0)
+
+	for _, userID := range []uint64{buyerID, otherBuyerID, thirdBuyerID} {
+		if err := favorites.Remove(ctx, userID, popular.ID); err != nil {
+			t.Fatalf("remove favorite: %v", err)
+		}
+	}
+	check("ranking after removal", dto.BookListQuery{}, 5, tiedNewer.ID, tiedOlder.ID, zeroNewer.ID, zeroOlder.ID, popular.ID)
+	add(buyerID, popular.ID)
+	check("ranking after adding again", dto.BookListQuery{}, 5, tiedNewer.ID, tiedOlder.ID, popular.ID, zeroNewer.ID, zeroOlder.ID)
 }
 
 func assertFavoriteSchema(t *testing.T, db *gorm.DB) {

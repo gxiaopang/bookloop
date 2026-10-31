@@ -7,6 +7,7 @@ import (
 
 const (
 	OrderCreated   = "order.created.v1"
+	OrderDelivered = "order.delivered.v1"
 	OrderCancelled = "order.cancelled.v1"
 	OrderExpired   = "order.expired.v1"
 	OrderCompleted = "order.completed.v1"
@@ -22,11 +23,12 @@ type Envelope struct {
 }
 
 type OrderPayload struct {
-	OrderNo   string    `json:"order_no"`
-	BookID    uint64    `json:"book_id"`
-	BuyerID   uint64    `json:"buyer_id"`
-	SellerID  uint64    `json:"seller_id"`
-	BookTitle string    `json:"book_title"`
-	Status    string    `json:"status"`
-	ExpiresAt time.Time `json:"expires_at"`
+	OrderNo      string    `json:"order_no"`
+	BookID       uint64    `json:"book_id"`
+	BuyerID      uint64    `json:"buyer_id"`
+	SellerID     uint64    `json:"seller_id"`
+	BookTitle    string    `json:"book_title"`
+	Status       string    `json:"status"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	CancelReason *string   `json:"cancel_reason,omitempty"`
 }

@@ -205,6 +205,7 @@ func TestOrderRoutesRequireAuthentication(t *testing.T) {
 		httptest.NewRequest(http.MethodPost, "/api/v1/orders", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/orders?as=buyer", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/orders/01HF7YAT00ABCDEFGHJKMNPQRS", nil),
+		httptest.NewRequest(http.MethodPost, "/api/v1/orders/01HF7YAT00ABCDEFGHJKMNPQRS/deliver", nil),
 		httptest.NewRequest(http.MethodPost, "/api/v1/orders/01HF7YAT00ABCDEFGHJKMNPQRS/complete", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/admin/orders", nil),
 		httptest.NewRequest(http.MethodGet, "/api/v1/notifications", nil),

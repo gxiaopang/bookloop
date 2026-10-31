@@ -13,6 +13,7 @@ const router = useRouter()
 const mode = ref<'login' | 'register'>('login')
 const formRef = ref<FormInstance>()
 const error = ref('')
+const submitting = ref(false)
 const form = reactive({ identifier: '', username: '', email: '', password: '', emailCode: '' })
 const sendingCode = ref(false)
 const resendSeconds = ref(0)
@@ -41,23 +42,37 @@ const rules: FormRules = {
 }
 
 async function submit() {
-  if (!await formRef.value?.validate().catch(() => false)) return
-  error.value = ''
+  if (submitting.value || sendingCode.value) return
+  submitting.value = true
   try {
+    if (!await formRef.value?.validate().catch(() => false)) return
+    error.value = ''
+    const password = form.password
     if (mode.value === 'register') {
-      await auth.register(form.username, form.email, form.password, form.emailCode)
-      ElMessage.success('注册成功，请使用新账号登录')
-      form.identifier = form.username
-      form.password = ''
-      switchMode('login')
-      return
+      const registered = await auth.register(form.username, form.email, password, form.emailCode)
+      try {
+        await auth.login(registered.email, password)
+      } catch (cause) {
+        form.identifier = registered.email
+        form.password = ''
+        form.emailCode = ''
+        switchMode('login')
+        error.value = `账号已创建，但自动登录未完成，请直接登录。${errorMessage(cause)}`
+        return
+      }
+      ElMessage.success('注册成功，已自动登录')
+    } else {
+      await auth.login(form.identifier, password)
+      ElMessage.success('登录成功')
     }
-    await auth.login(form.identifier, form.password)
-    ElMessage.success('登录成功')
+    form.password = ''
+    form.emailCode = ''
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     await router.replace(redirect)
   } catch (cause) {
     error.value = errorMessage(cause)
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -121,7 +136,7 @@ function switchMode(next: 'login' | 'register') {
           <el-form-item label="邮箱验证码" prop="emailCode">
             <div class="email-code-row">
               <el-input v-model="form.emailCode" maxlength="6" inputmode="numeric" autocomplete="one-time-code" placeholder="6 位数字" />
-              <el-button native-type="button" :loading="sendingCode" :disabled="resendSeconds > 0 || auth.loading" @click="sendCode">
+              <el-button native-type="button" :loading="sendingCode" :disabled="resendSeconds > 0 || submitting" @click="sendCode">
                 {{ resendSeconds > 0 ? `${resendSeconds} 秒后重发` : '获取验证码' }}
               </el-button>
             </div>
@@ -130,13 +145,13 @@ function switchMode(next: 'login' | 'register') {
         <el-form-item label="密码" prop="password">
           <el-input v-model="form.password" type="password" show-password :autocomplete="mode === 'login' ? 'current-password' : 'new-password'" />
         </el-form-item>
-        <el-button class="full-button" type="primary" native-type="submit" :loading="auth.loading" :disabled="sendingCode">
+        <el-button class="full-button" type="primary" native-type="submit" :loading="submitting" :disabled="sendingCode">
           {{ mode === 'login' ? '登录' : '创建账号' }}
         </el-button>
       </el-form>
       <div class="auth-switch">
         {{ mode === 'login' ? '还没有账号？' : '已经有账号？' }}
-        <el-button link type="primary" @click="switchMode(mode === 'login' ? 'register' : 'login')">
+        <el-button link type="primary" :disabled="submitting" @click="switchMode(mode === 'login' ? 'register' : 'login')">
           {{ mode === 'login' ? '立即注册' : '返回登录' }}
         </el-button>
       </div>

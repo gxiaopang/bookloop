@@ -63,6 +63,7 @@ func New(
 	authenticated.GET("/orders", orders.List)
 	authenticated.GET("/orders/:order_no", orders.Get)
 	authenticated.POST("/orders/:order_no/cancel", orders.Cancel)
+	authenticated.POST("/orders/:order_no/deliver", orders.Deliver)
 	authenticated.POST("/orders/:order_no/complete", orders.Complete)
 	authenticated.GET("/notifications", notifications.List)
 	authenticated.PUT("/notifications/read-all", notifications.MarkAllRead)

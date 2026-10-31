@@ -16,7 +16,8 @@ export const bookStatusLabels: Record<BookStatus, string> = {
 }
 
 export const orderStatusLabels: Record<OrderStatus, string> = {
-  pending_handover: '待线下交付',
+  pending_handover: '待卖家交付',
+  pending_receipt: '待买家收书',
   completed: '已完成',
   cancelled: '已取消',
   expired: '已过期',
@@ -31,7 +32,7 @@ export function formatTime(value?: string): string {
 
 export function statusType(status: string): 'success' | 'warning' | 'info' | 'danger' | 'primary' {
   if (status === 'available' || status === 'completed') return 'success'
-  if (status === 'pending_handover' || status === 'reserved') return 'warning'
+  if (status === 'pending_handover' || status === 'pending_receipt' || status === 'reserved') return 'warning'
   if (status === 'blocked' || status === 'expired') return 'danger'
   return 'info'
 }

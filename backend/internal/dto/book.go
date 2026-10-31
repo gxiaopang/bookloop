@@ -48,6 +48,7 @@ type BookListItemResponse struct {
 }
 
 type BookResponse struct {
+	SellerUsername  string              `json:"seller_username,omitempty"`
 	WechatQRCodeURL *string             `json:"wechat_qr_code_url"`
 	ID              uint64              `json:"id"`
 	SellerID        uint64              `json:"seller_id"`

@@ -31,12 +31,12 @@ async function load(page = 1) {
 
 async function moderate(action: 'block' | 'unblock') {
   if (!bookId.value || bookId.value < 1) {
-    ElMessage.warning('请输入有效图书 ID')
+    ElMessage.warning('请输入有效的图书编号')
     return
   }
   const text = action === 'block' ? '屏蔽' : '解除屏蔽'
   try {
-    await ElMessageBox.confirm(`确认${text}图书 #${bookId.value}？`, '图书治理', { type: 'warning' })
+    await ElMessageBox.confirm(`确认${text}编号为 ${bookId.value} 的图书？`, '图书治理', { type: 'warning' })
   } catch {
     return
   }
@@ -56,11 +56,11 @@ onMounted(() => load())
 
 <template>
   <section class="page-width inner-page admin-page">
-    <PageHeader eyebrow="ADMIN CONSOLE" title="基础管理台" description="权限最终由后端数据库中的当前角色判定。" />
+    <PageHeader eyebrow="ADMIN CONSOLE" title="基础管理台" description="查看交易记录，处理违规图书。" />
     <section class="moderation-card">
-      <div><span class="eyebrow">BOOK MODERATION</span><h2>图书治理</h2><p>仅支持后端现有的 block / unblock 状态动作。</p></div>
+      <div><span class="eyebrow">BOOK MODERATION</span><h2>图书治理</h2><p>输入图书编号定位图书，进行屏蔽或解除屏蔽。</p></div>
       <div class="moderation-actions">
-        <el-input-number v-model="bookId" :min="1" :precision="0" placeholder="图书 ID" />
+        <el-input-number v-model="bookId" :min="1" :precision="0" placeholder="图书编号" aria-label="图书编号" />
         <el-button type="danger" :loading="moderating" @click="moderate('block')">屏蔽图书</el-button>
         <el-button :loading="moderating" @click="moderate('unblock')">解除屏蔽</el-button>
       </div>
@@ -71,7 +71,8 @@ onMounted(() => load())
       <el-table v-if="!loading && !error && orders.length" :data="orders" stripe>
         <el-table-column prop="order_no" label="订单号" min-width="230" />
         <el-table-column prop="book_title" label="图书" min-width="180" />
-        <el-table-column label="参与者" min-width="140"><template #default="scope">#{{ scope.row.buyer_id }} → #{{ scope.row.seller_id }}</template></el-table-column>
+        <el-table-column label="买家" min-width="140"><template #default="scope">{{ scope.row.buyer_username || '暂无用户名' }}</template></el-table-column>
+        <el-table-column label="卖家" min-width="140"><template #default="scope">{{ scope.row.seller_username || '暂无用户名' }}</template></el-table-column>
         <el-table-column label="金额" width="100"><template #default="scope">¥{{ scope.row.book_price }}</template></el-table-column>
         <el-table-column label="状态" width="110"><template #default="scope"><el-tag :type="statusType(scope.row.status)">{{ orderStatusLabels[scope.row.status as Order['status']] }}</el-tag></template></el-table-column>
         <el-table-column label="创建时间" min-width="170"><template #default="scope">{{ formatTime(scope.row.created_at) }}</template></el-table-column>

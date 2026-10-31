@@ -43,6 +43,10 @@ func NewOrderRepository(db *gorm.DB) *OrderRepository {
 	return &OrderRepository{db: db}
 }
 
+func (r *OrderRepository) FindUsernames(ctx context.Context, ids []uint64) (map[uint64]string, error) {
+	return findUsernames(ctx, r.db, ids)
+}
+
 func (r *OrderRepository) WithinTransaction(ctx context.Context, operation func(OrderStore) error) error {
 	return r.db.WithContext(ctx).Transaction(func(transaction *gorm.DB) error {
 		return operation(&OrderRepository{db: transaction})

@@ -40,7 +40,7 @@ const canPublish = computed(() => book.value?.status === 'off_shelf' && Boolean(
 
 async function load() {
   if (!editId || !Number.isInteger(editId) || editId < 1) {
-    error.value = '图书编号无效'
+    error.value = '图书链接无效，请从我的发布重新进入'
     loading.value = false
     return
   }
@@ -239,7 +239,7 @@ onMounted(() => { if (editId) void load() })
       </section>
 
       <section class="editor-card" :class="{ muted: !book?.images.length }">
-        <div class="step-heading"><span>03</span><div><h2>微信联系方式（必填）</h2><p>上传微信个人联系二维码，买家可扫码联系你并协商线下交易。</p></div></div>
+        <div class="step-heading"><span>03</span><div><h2>微信联系方式（必填）</h2><p>上传微信个人联系二维码，买家可扫码联系你并协商交易。</p></div></div>
         <template v-if="book?.images.length">
           <input ref="contactInput" class="visually-hidden" type="file" accept="image/jpeg,image/png" @change="uploadContact" />
           <el-image v-if="book.wechat_qr_code_url" class="wechat-qr-code" :src="assetUrl(book.wechat_qr_code_url)" :preview-src-list="[assetUrl(book.wechat_qr_code_url)]" fit="contain" alt="微信联系二维码" />

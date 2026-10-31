@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { api } from '@/api'
 import { errorMessage } from '@/api/http'
-import type { BookCondition, BookListItem, Pagination } from '@/types/api'
+import type { BookCondition, BookListItem, BookListParams, Pagination } from '@/types/api'
 import BookCard from '@/components/BookCard.vue'
 import PageFeedback from '@/components/PageFeedback.vue'
 
@@ -13,7 +13,7 @@ const error = ref('')
 const filters = reactive<{
   keyword: string
   condition: BookCondition | ''
-  sort: 'newest' | 'price_asc' | 'price_desc'
+  sort: NonNullable<BookListParams['sort']>
 }>({ keyword: '', condition: '', sort: 'newest' })
 
 async function load(page = 1) {
@@ -46,7 +46,11 @@ onMounted(() => load())
       <div class="hero-copy">
         <span class="eyebrow light">GOOD BOOKS CONNECT PEOPLE</span>
         <h1>让好书，<br /><em>遇见更多读者。</em></h1>
-        <p>从文学小说到生活读物，发现想读的书，也为闲置好书找到下一位读者。</p>
+        <p>从文学小说、社科人文到专业教材，发现你想读的那一本书，也为书架上的闲置好书找到下一位知音。</p>
+        <div class="hero-highlights" aria-label="平台特色">
+          <span class="hero-pill"><i></i>1–6 张实物图实拍</span>
+          <span class="hero-pill"><i></i>微信扫码直联卖家</span>
+        </div>
       </div>
       <div class="hero-art" aria-hidden="true">
         <span class="orbit orbit-one"></span>
@@ -79,6 +83,7 @@ onMounted(() => load())
         </el-select>
         <el-select v-model="filters.sort" aria-label="排序方式">
           <el-option label="最新发布" value="newest" />
+          <el-option label="收藏最多" value="favorites_desc" />
           <el-option label="价格从低到高" value="price_asc" />
           <el-option label="价格从高到低" value="price_desc" />
         </el-select>

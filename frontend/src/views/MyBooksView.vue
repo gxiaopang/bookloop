@@ -68,7 +68,7 @@ onMounted(() => load())
           <strong>¥{{ book.price }}</strong>
           <div class="my-book-actions">
             <RouterLink v-if="['available', 'off_shelf'].includes(book.status)" :to="{ name: 'book-edit', params: { id: book.id } }"><el-button>编辑与联系方式</el-button></RouterLink>
-            <el-button v-if="['available', 'off_shelf'].includes(book.status)" type="primary" :plain="book.status === 'available'" :loading="acting === book.id" @click="toggleShelf(book)">
+            <el-button v-if="['available', 'off_shelf'].includes(book.status)" class="shelf-toggle" type="primary" :plain="book.status === 'available'" :loading="acting === book.id" @click="toggleShelf(book)">
               {{ book.status === 'available' ? '下架' : '上架' }}
             </el-button>
           </div>

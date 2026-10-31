@@ -59,7 +59,7 @@ function createRequestId(): string {
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     const localized = errorMessages[error.code]
-    return `${localized || error.message}${error.requestId ? `（请求 ID：${error.requestId}）` : ''}`
+    return localized || error.message
   }
   return error instanceof Error ? error.message : '发生未知错误'
 }

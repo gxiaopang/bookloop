@@ -88,6 +88,9 @@ export const api = {
   cancelOrder(orderNo: string) {
     return data<Order>(http.post(`/orders/${orderNo}/cancel`))
   },
+  deliverOrder(orderNo: string) {
+    return data<Order>(http.post(`/orders/${orderNo}/deliver`))
+  },
   completeOrder(orderNo: string) {
     return data<Order>(http.post(`/orders/${orderNo}/complete`))
   },

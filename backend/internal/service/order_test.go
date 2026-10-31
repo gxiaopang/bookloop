@@ -293,42 +293,107 @@ func TestOrderConcurrentPurchaseHasOneWinner(t *testing.T) {
 	}
 }
 
-func TestOrderOfflineCompleteStateMachine(t *testing.T) {
-	repository := newFakeOrderRepository()
-	repository.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
-	repository.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
-	service := newTestOrderService(repository)
-	created, err := service.Create(context.Background(), 20, 1, "offline-flow")
+func TestOrderTwoPartyHandoverStateMachine(t *testing.T) {
+	repo := newFakeOrderRepository()
+	repo.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
+	repo.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
+	svc := newTestOrderService(repo)
+	ctx := context.Background()
+	created, err := svc.Create(ctx, 20, 1, "offline-flow")
 	if err != nil {
-		t.Fatalf("Create() error = %v", err)
+		t.Fatal(err)
 	}
+	orderNo := created.Order.OrderNo
 
-	if _, err := service.Complete(context.Background(), 99, created.Order.OrderNo); !errors.Is(err, ErrOrderAccessDenied) {
-		t.Fatalf("Complete(non-buyer) error = %v, want ErrOrderAccessDenied", err)
+	for _, actorID := range []uint64{10, 99} {
+		if _, err := svc.Complete(ctx, actorID, orderNo); !errors.Is(err, ErrOrderAccessDenied) {
+			t.Fatalf("Complete(actor=%d) error = %v, want access denied", actorID, err)
+		}
 	}
-	completed, err := service.Complete(context.Background(), 20, created.Order.OrderNo)
+	if _, err := svc.Complete(ctx, 20, orderNo); !errors.Is(err, ErrOrderStateConflict) {
+		t.Fatalf("Complete(before handover) = %v, want state conflict", err)
+	}
+	for _, actorID := range []uint64{20, 99} {
+		if _, err := svc.Deliver(ctx, actorID, orderNo); !errors.Is(err, ErrOrderAccessDenied) {
+			t.Fatalf("Deliver(actor=%d) error = %v, want access denied", actorID, err)
+		}
+	}
+	delivered, err := svc.Deliver(ctx, 10, orderNo)
 	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
+		t.Fatal(err)
 	}
-	if completed.Status != string(model.OrderStatusCompleted) || repository.books[1].Status != model.BookStatusSold {
-		t.Fatalf("completed/status = %+v/%q, want completed/sold", completed, repository.books[1].Status)
+	if delivered.Status != string(model.OrderStatusPendingReceipt) || delivered.HandedOverAt == nil ||
+		!delivered.HandedOverAt.Equal(repo.now) || delivered.CompletedAt != nil || repo.books[1].Status != model.BookStatusReserved {
+		t.Fatalf("after handover = %+v, book = %s; want pending receipt, timestamp, reserved book", delivered, repo.books[1].Status)
 	}
-	if completed.CompletedAt == nil {
-		t.Fatal("offline completion must only set completed_at")
+	handedOverAt := *delivered.HandedOverAt
+	repo.now = created.Order.ExpiresAt.Add(time.Hour)
+	repeated, err := svc.Deliver(ctx, 10, orderNo)
+	if err != nil || repeated.HandedOverAt == nil || !repeated.HandedOverAt.Equal(handedOverAt) {
+		t.Fatalf("repeated Deliver = %+v/%v, want original handover time", repeated, err)
 	}
-	if repeated, err := service.Complete(context.Background(), 20, created.Order.OrderNo); err != nil || repeated.Status != string(model.OrderStatusCompleted) {
-		t.Fatalf("repeated Complete() = %+v/%v", repeated, err)
+	if _, err := svc.Cancel(ctx, 20, orderNo); !errors.Is(err, ErrOrderStateConflict) {
+		t.Fatalf("Cancel(after handover) = %v, want state conflict", err)
 	}
-	if _, err := service.Cancel(context.Background(), 20, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
-		t.Fatalf("Cancel(completed) error = %v, want ErrOrderStateConflict", err)
+	expired, err := svc.ExpireOverdue(ctx)
+	if err != nil || expired != 0 {
+		t.Fatalf("ExpireOverdue = %d/%v, want zero", expired, err)
 	}
-	eventTypes := make([]string, 0, len(repository.outboxEvents))
-	for _, outboxEvent := range repository.outboxEvents {
-		eventTypes = append(eventTypes, outboxEvent.EventType)
+	current, err := svc.Get(ctx, &model.User{ID: 20}, orderNo)
+	if err != nil || current.Status != string(model.OrderStatusPendingReceipt) {
+		t.Fatalf("Get(after original deadline) = %+v/%v", current, err)
 	}
-	wantEvents := []string{domainevent.OrderCreated, domainevent.OrderCompleted}
+	listed, err := svc.List(ctx, 20, dto.OrderListQuery{As: "buyer"})
+	if err != nil || len(listed.Items) != 1 || listed.Items[0].Status != string(model.OrderStatusPendingReceipt) {
+		t.Fatalf("List(after original deadline) = %+v/%v", listed, err)
+	}
+	if _, err := svc.Create(ctx, 21, 1, "after-handover"); !errors.Is(err, ErrBookNotAvailable) {
+		t.Fatalf("Create(after handover) = %v, want book unavailable", err)
+	}
+	completed, err := svc.Complete(ctx, 20, orderNo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != string(model.OrderStatusCompleted) || repo.books[1].Status != model.BookStatusSold ||
+		completed.CompletedAt == nil || !completed.CompletedAt.Equal(repo.now) || !completed.HandedOverAt.Equal(handedOverAt) {
+		t.Fatalf("completed = %+v, book = %s; want both timestamps and sold", completed, repo.books[1].Status)
+	}
+	if repeated, err := svc.Complete(ctx, 20, orderNo); err != nil || repeated.Status != string(model.OrderStatusCompleted) {
+		t.Fatalf("repeated Complete = %+v/%v", repeated, err)
+	}
+	if repeated, err := svc.Deliver(ctx, 10, orderNo); err != nil || repeated.Status != string(model.OrderStatusCompleted) {
+		t.Fatalf("Deliver(after completion) = %+v/%v", repeated, err)
+	}
+	if _, err := svc.Cancel(ctx, 20, orderNo); !errors.Is(err, ErrOrderStateConflict) {
+		t.Fatalf("Cancel(completed) = %v, want state conflict", err)
+	}
+	var eventTypes []string
+	for _, event := range repo.outboxEvents {
+		eventTypes = append(eventTypes, event.EventType)
+	}
+	wantEvents := []string{domainevent.OrderCreated, domainevent.OrderDelivered, domainevent.OrderCompleted}
 	if fmt.Sprint(eventTypes) != fmt.Sprint(wantEvents) {
-		t.Fatalf("outbox event types = %v, want %v (idempotent repeats must not emit)", eventTypes, wantEvents)
+		t.Fatalf("events = %v, want %v with no duplicates", eventTypes, wantEvents)
+	}
+}
+
+func TestOrderDeliveryRejectsCancelledOrders(t *testing.T) {
+	repo := newFakeOrderRepository()
+	repo.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
+	repo.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
+	svc := newTestOrderService(repo)
+	created, err := svc.Create(context.Background(), 20, 1, "cancel-before-delivery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Cancel(context.Background(), 20, created.Order.OrderNo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Deliver(context.Background(), 10, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
+		t.Fatalf("Deliver(cancelled) = %v, want state conflict", err)
+	}
+	if _, err := svc.Complete(context.Background(), 20, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
+		t.Fatalf("Complete(cancelled) = %v, want state conflict", err)
 	}
 }
 
@@ -369,7 +434,92 @@ func TestOrderCancelAndExpirationReleaseBook(t *testing.T) {
 	}
 }
 
-func TestOrderOfflineCompletionRejectsExpiredAndKeepsIncompleteListingsOffShelf(t *testing.T) {
+func TestOrderParticipantsCanCancelBeforeDelivery(t *testing.T) {
+	for _, sellerCancels := range []bool{false, true} {
+		for _, missingContact := range []bool{false, true} {
+			t.Run(fmt.Sprintf("seller=%v/missing-contact=%v", sellerCancels, missingContact), func(t *testing.T) {
+				repo := newFakeOrderRepository()
+				repo.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
+				repo.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
+				svc := newTestOrderService(repo)
+				ctx := context.Background()
+				created, err := svc.Create(ctx, 20, 1, "participant-cancel")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if missingContact {
+					repo.books[1].WechatQRCodeURL = nil
+				}
+				if _, err := svc.Cancel(ctx, 99, created.Order.OrderNo); !errors.Is(err, ErrOrderAccessDenied) {
+					t.Fatalf("Cancel(non-participant) = %v", err)
+				}
+				actor, reason := uint64(20), "cancelled by buyer"
+				if sellerCancels {
+					actor, reason = 10, "cancelled by seller"
+				}
+				cancelled, err := svc.Cancel(ctx, actor, created.Order.OrderNo)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantBookStatus := model.BookStatusAvailable
+				if missingContact {
+					wantBookStatus = model.BookStatusOffShelf
+				}
+				if cancelled.Status != string(model.OrderStatusCancelled) || cancelled.CancelReason == nil ||
+					*cancelled.CancelReason != reason || cancelled.CancelledAt == nil || repo.books[1].Status != wantBookStatus {
+					t.Fatalf("cancelled=%+v book=%s", cancelled, repo.books[1].Status)
+				}
+				cancelledAt := *cancelled.CancelledAt
+				repo.now = repo.now.Add(time.Minute)
+				for _, repeatActor := range []uint64{10, 20} {
+					repeated, err := svc.Cancel(ctx, repeatActor, created.Order.OrderNo)
+					if err != nil || *repeated.CancelReason != reason || !repeated.CancelledAt.Equal(cancelledAt) {
+						t.Fatalf("Cancel(repeat actor=%d) = %+v/%v", repeatActor, repeated, err)
+					}
+				}
+				if len(repo.outboxEvents) != 2 || repo.outboxEvents[1].EventType != domainevent.OrderCancelled {
+					t.Fatalf("events = %+v, want created and one cancelled event", repo.outboxEvents)
+				}
+				var payload domainevent.OrderPayload
+				if err := json.Unmarshal(repo.outboxEvents[1].Payload, &payload); err != nil {
+					t.Fatal(err)
+				}
+				if payload.CancelReason == nil || *payload.CancelReason != reason {
+					t.Fatalf("event reason = %v, want %s", payload.CancelReason, reason)
+				}
+			})
+		}
+	}
+}
+
+func TestSellerCannotCancelAfterDeliveryOrCompletion(t *testing.T) {
+	repo := newFakeOrderRepository()
+	repo.users[10] = &model.User{ID: 10, Status: model.UserStatusActive}
+	repo.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
+	svc := newTestOrderService(repo)
+	ctx := context.Background()
+	created, err := svc.Create(ctx, 20, 1, "seller-cancel-after-delivery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Deliver(ctx, 10, created.Order.OrderNo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Cancel(ctx, 10, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
+		t.Fatalf("seller Cancel(delivered) = %v", err)
+	}
+	if _, err := svc.Complete(ctx, 20, created.Order.OrderNo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Cancel(ctx, 10, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
+		t.Fatalf("seller Cancel(completed) = %v", err)
+	}
+	if repo.books[1].Status != model.BookStatusSold || len(repo.outboxEvents) != 3 {
+		t.Fatal("rejected cancellation changed completed book or emitted events")
+	}
+}
+
+func TestOrderDeliveryRejectsExpiredAndKeepsIncompleteListingsOffShelf(t *testing.T) {
 	for _, missingContact := range []bool{false, true} {
 		t.Run(fmt.Sprint(missingContact), func(t *testing.T) {
 			repo := newFakeOrderRepository()
@@ -384,8 +534,8 @@ func TestOrderOfflineCompletionRejectsExpiredAndKeepsIncompleteListingsOffShelf(
 				repo.books[1].WechatQRCodeURL = nil
 			}
 			repo.now = created.Order.ExpiresAt
-			if _, err := svc.Complete(context.Background(), 20, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
-				t.Fatalf("Complete(expired) error = %v", err)
+			if _, err := svc.Deliver(context.Background(), 10, created.Order.OrderNo); !errors.Is(err, ErrOrderStateConflict) {
+				t.Fatalf("Deliver(expired) error = %v", err)
 			}
 			want := model.BookStatusAvailable
 			if missingContact {
@@ -552,14 +702,16 @@ func leftPadOrderSequence(sequence uint64) string {
 }
 
 type fakeOrderRepository struct {
-	mutex         sync.Mutex
-	books         map[uint64]*model.Book
-	users         map[uint64]*model.User
-	orders        map[string]*model.Order
-	nextID        uint64
-	now           time.Time
-	orderSequence uint64
-	outboxEvents  []model.OutboxEvent
+	usernameLookups   int
+	usernameLookupErr error
+	mutex             sync.Mutex
+	books             map[uint64]*model.Book
+	users             map[uint64]*model.User
+	orders            map[string]*model.Order
+	nextID            uint64
+	now               time.Time
+	orderSequence     uint64
+	outboxEvents      []model.OutboxEvent
 }
 
 func newFakeOrderRepository() *fakeOrderRepository {
@@ -638,7 +790,7 @@ func (r *fakeOrderRepository) Create(_ context.Context, order *model.Order) erro
 			return repository.ErrOrderIdempotencyDuplicate
 		}
 		if existing.BookID == order.BookID && (existing.Status == model.OrderStatusPendingHandover ||
-			existing.Status == model.OrderStatusCompleted) {
+			existing.Status == model.OrderStatusPendingReceipt || existing.Status == model.OrderStatusCompleted) {
 			return repository.ErrOrderActiveBookDuplicate
 		}
 	}
@@ -683,6 +835,9 @@ func (r *fakeOrderRepository) UpdateOrderStatus(
 		return repository.ErrConcurrentUpdate
 	}
 	found.Status = to
+	if value, ok := updates["handed_over_at"].(time.Time); ok {
+		found.HandedOverAt = &value
+	}
 	if value, ok := updates["completed_at"].(time.Time); ok {
 		found.CompletedAt = &value
 	}
@@ -736,4 +891,74 @@ func (r *fakeOrderRepository) FindExpiredPendingOrderNos(_ context.Context, limi
 		orderNos = orderNos[:limit]
 	}
 	return orderNos, nil
+}
+
+func (r *fakeOrderRepository) FindUsernames(_ context.Context, ids []uint64) (map[uint64]string, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.usernameLookups++
+	if r.usernameLookupErr != nil {
+		return nil, r.usernameLookupErr
+	}
+	names := make(map[uint64]string)
+	for _, id := range ids {
+		if user := r.users[id]; user != nil {
+			names[id] = user.Username
+		}
+	}
+	return names, nil
+}
+
+func TestOrderResponsesUseDatabaseUsernames(t *testing.T) {
+	repo := newFakeOrderRepository()
+	repo.users[10] = &model.User{ID: 10, Username: "seller_reader", Status: model.UserStatusActive}
+	repo.users[20] = &model.User{ID: 20, Username: "buyer_reader", Status: model.UserStatusActive}
+	repo.books[1] = &model.Book{ID: 1, SellerID: 10, Title: "One", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
+	svc := newTestOrderService(repo)
+	ctx := context.Background()
+	created, err := svc.Create(ctx, 20, 1, "display-usernames")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkNames := func(response dto.OrderResponse) {
+		t.Helper()
+		if response.BuyerUsername != "buyer_reader" || response.SellerUsername != "seller_reader" {
+			t.Fatalf("unexpected usernames: %+v", response)
+		}
+	}
+	checkNames(created.Order)
+	replayed, err := svc.Create(ctx, 20, 1, "display-usernames")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkNames(replayed.Order)
+	detail, err := svc.Get(ctx, repo.users[20], created.Order.OrderNo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkNames(*detail)
+	// Populate an entire page; names must be fetched once rather than per item.
+	for i := 2; i <= 5; i++ {
+		repo.books[uint64(i)] = &model.Book{ID: uint64(i), SellerID: 10, Title: "Another", Price: "10.00", Status: model.BookStatusAvailable, WechatQRCodeURL: testContactURL()}
+		if _, err := svc.Create(ctx, 20, uint64(i), fmt.Sprintf("names-%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repo.usernameLookups = 0
+	listed, err := svc.List(ctx, 20, dto.OrderListQuery{As: "buyer"})
+	if err != nil || len(listed.Items) != 5 || repo.usernameLookups != 1 {
+		t.Fatalf("list = %+v/%v, username queries = %d; want one batch", listed, err, repo.usernameLookups)
+	}
+	for _, item := range listed.Items {
+		checkNames(item)
+	}
+	cancelled, err := svc.Cancel(ctx, 10, created.Order.OrderNo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkNames(*cancelled)
+	repo.usernameLookupErr = errors.New("username lookup unavailable")
+	if _, err := svc.List(ctx, 20, dto.OrderListQuery{As: "buyer"}); !errors.Is(err, repo.usernameLookupErr) {
+		t.Fatalf("lookup error silently ignored: %v", err)
+	}
 }
